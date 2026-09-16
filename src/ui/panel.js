@@ -42,8 +42,53 @@ function speakerColor(transcript, speakerId) {
   return "#7c9cff";
 }
 
-function createPanelController({ root, host, storage, secureStorage, fixture }) {
-  const settingsStore = settingsApi.createSettingsStore(storage, secureStorage);
+function fieldValue(form, name) {
+  if (!form || typeof form.querySelector !== "function") return null;
+  return form.querySelector(`[name="${name}"]`) || form.querySelector(`[name=${name}]`);
+}
+
+function readSettingsFromForm(form) {
+  if (!form) return null;
+  const language = fieldValue(form, "language");
+  const sttProvider = fieldValue(form, "sttProvider");
+  if (!language && !sttProvider) return null;
+  const valueOf = (name) => {
+    const field = fieldValue(form, name);
+    return field ? field.value : undefined;
+  };
+  const includeSpeaker = fieldValue(form, "includeSpeakerInCaptions");
+  const apiKeyField = fieldValue(form, "apiKey");
+  const data = {
+    language: language ? language.value : undefined,
+    sttProvider: sttProvider ? sttProvider.value : undefined,
+    whisperBaseUrl: valueOf("whisperBaseUrl"),
+    whisperModel: valueOf("whisperModel"),
+    fillerListText: valueOf("fillerList"),
+    textSize: valueOf("textSize"),
+    silenceThresholdMs: valueOf("silenceThresholdMs"),
+    padCutMs: valueOf("padCutMs"),
+    includeSpeakerInCaptions: includeSpeaker ? Boolean(includeSpeaker.checked) : undefined,
+    transcribeSource: valueOf("transcribeSource"),
+    audioPresetPath: valueOf("audioPresetPath")
+  };
+  Object.keys(data).forEach((key) => {
+    if (data[key] === undefined) delete data[key];
+  });
+  if (apiKeyField && String(apiKeyField.value || "").trim()) {
+    data.apiKey = String(apiKeyField.value).trim();
+  }
+  return data;
+}
+
+let uxpHost = null;
+try {
+  uxpHost = typeof require === "function" ? require("uxp") : null;
+} catch (_err) {
+  uxpHost = null;
+}
+
+function createPanelController({ root, host, storage, secureStorage, fileStore, fixture }) {
+  const settingsStore = settingsApi.createSettingsStore(storage, secureStorage, fileStore);
   const history = undoApi.createUndoStack({ limit: 80 });
   const state = {
     tab: "transcript",
@@ -348,28 +393,41 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     return srt;
   }
 
+  function flushFormIntoState() {
+    const form = root && root.querySelector ? root.querySelector("#settings-form") : null;
+    const data = readSettingsFromForm(form);
+    if (!data) return null;
+    settingsStore.save(data);
+    state.settings = settingsStore.get();
+    return data;
+  }
+
+  async function persistFormSettings({ rerender, message, tone } = {}) {
+    const data = flushFormIntoState();
+    if (!data) return state.settings;
+    state.settings = await settingsStore.save(data);
+    if (message) setMessage(message, tone || "ok");
+    if (rerender) render();
+    return state.settings;
+  }
+
   async function saveSettingsFromForm() {
     const form = root.querySelector("#settings-form");
     if (!form) return;
-    const data = {
-      language: form.querySelector("[name=language]").value,
-      sttProvider: form.querySelector("[name=sttProvider]").value,
-      whisperBaseUrl: form.querySelector("[name=whisperBaseUrl]").value,
-      whisperModel: form.querySelector("[name=whisperModel]").value,
-      fillerListText: form.querySelector("[name=fillerList]").value,
-      textSize: form.querySelector("[name=textSize]").value,
-      silenceThresholdMs: form.querySelector("[name=silenceThresholdMs]").value,
-      padCutMs: form.querySelector("[name=padCutMs]").value,
-      includeSpeakerInCaptions: form.querySelector("[name=includeSpeakerInCaptions]").checked,
-      transcribeSource: form.querySelector("[name=transcribeSource]").value,
-      audioPresetPath: form.querySelector("[name=audioPresetPath]").value
-    };
-    const apiKey = form.querySelector("[name=apiKey]").value.trim();
-    if (apiKey) data.apiKey = apiKey;
+    const data = readSettingsFromForm(form) || {};
     state.settings = await settingsStore.save(data);
-    form.querySelector("[name=apiKey]").value = "";
+    const apiKeyField = fieldValue(form, "apiKey");
+    if (apiKeyField) apiKeyField.value = "";
     setMessage("Settings saved. API keys stay local — never committed.", "ok");
     render();
+  }
+
+  async function saveSettings(partial) {
+    const form = root && root.querySelector ? root.querySelector("#settings-form") : null;
+    const fromForm = readSettingsFromForm(form) || {};
+    state.settings = await settingsStore.save({ ...fromForm, ...(partial || {}) });
+    render();
+    return state.settings;
   }
 
   function renderTranscript() {
@@ -530,6 +588,7 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
           <input name="includeSpeakerInCaptions" type="checkbox"${s.includeSpeakerInCaptions ? " checked" : ""} />
           Include speaker names in captions
         </label>
+        <p class="muted">Provider and other options save as you change them. Use Save settings after pasting an API key.</p>
         <button type="submit" class="btn primary">Save settings</button>
       </form>
     `);
@@ -537,6 +596,10 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
 
   function render() {
     if (!root) return;
+    const paneEl = root.querySelector ? root.querySelector(".pane") : null;
+    const prevPane = paneEl && paneEl.getAttribute ? paneEl.getAttribute("data-pane") : "";
+    const scrollTop = paneEl && prevPane === state.tab ? Number(paneEl.scrollTop) || 0 : 0;
+    flushFormIntoState();
     const tab = state.tab;
     root.innerHTML = h(`
       <div class="app text-${escapeHtml(state.settings.textSize)}">
@@ -588,11 +651,14 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
       </div>
     `);
     bind();
+    const nextPane = root.querySelector ? root.querySelector(".pane") : null;
+    if (nextPane) nextPane.scrollTop = scrollTop;
   }
 
   function bind() {
     root.querySelectorAll("[data-tab]").forEach((button) => {
       button.addEventListener("click", () => {
+        flushFormIntoState();
         state.tab = button.getAttribute("data-tab");
         render();
       });
@@ -612,10 +678,10 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
         const path = await host.pickPresetFile();
         if (!path) return;
         const form = root.querySelector("#settings-form");
-        if (form && form.querySelector("[name=audioPresetPath]")) {
-          form.querySelector("[name=audioPresetPath]").value = path;
-        }
-        state.settings = await settingsStore.save({ audioPresetPath: path });
+        const presetField = form && fieldValue(form, "audioPresetPath");
+        if (presetField) presetField.value = path;
+        const fromForm = readSettingsFromForm(form) || {};
+        state.settings = await settingsStore.save({ ...fromForm, audioPresetPath: path });
         setMessage(`Using preset ${path.split(/[/\\]/).pop()}.`, "ok");
         render();
       });
@@ -676,6 +742,18 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
         event.preventDefault();
         saveSettingsFromForm();
       });
+      form.addEventListener("change", (event) => {
+        const name = event.target && event.target.getAttribute ? event.target.getAttribute("name") : "";
+        if (name === "sttProvider" || name === "textSize") {
+          persistFormSettings({
+            rerender: true,
+            message: name === "sttProvider" ? "STT provider saved." : "",
+            tone: "ok"
+          });
+          return;
+        }
+        persistFormSettings({ rerender: false });
+      });
     }
   }
 
@@ -694,6 +772,20 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     }
   }
 
+  function onWheel(event) {
+    const dy = event.deltaY;
+    if (!dy) return;
+    const pane = root.querySelector ? root.querySelector(".pane") : null;
+    if (pane && pane.scrollHeight > pane.clientHeight + 1) {
+      pane.scrollTop += dy;
+      return;
+    }
+    const doc = (root && root.ownerDocument) || (typeof document !== "undefined" ? document : null);
+    if (!doc) return;
+    const scroller = doc.scrollingElement || doc.documentElement || doc.body;
+    if (scroller) scroller.scrollTop += dy;
+  }
+
   return {
     async mount() {
       await settingsStore.load();
@@ -703,6 +795,9 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
       await refreshHost();
       if (root && root.ownerDocument) {
         root.ownerDocument.addEventListener("keydown", onKeyDown);
+        if (uxpHost) {
+          root.addEventListener("wheel", onWheel, { passive: true });
+        }
       }
     },
     getState() {
@@ -713,11 +808,14 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     undo,
     redo,
     applyToSequence,
-    exportSrt
+    exportSrt,
+    saveSettings,
+    persistFormSettings,
+    readSettingsFromForm
   };
 }
 
-const api = { createPanelController };
+const api = { createPanelController, readSettingsFromForm };
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = api;

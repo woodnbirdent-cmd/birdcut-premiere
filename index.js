@@ -2,26 +2,50 @@
 
 const { createPanelController } = require("./src/ui/panel");
 const { createPremiereHost } = require("./src/premiere/host");
+const settingsApi = require("./src/core/settings");
 
 let mounted = false;
+
+function resolveStorage() {
+  try {
+    const uxp = require("uxp");
+    if (uxp.storage && uxp.storage.localStorage && typeof uxp.storage.localStorage.getItem === "function") {
+      return uxp.storage.localStorage;
+    }
+  } catch (_err) {
+    /* preview / Node */
+  }
+  return typeof localStorage !== "undefined" ? localStorage : null;
+}
+
+function resolveSecureStorage() {
+  try {
+    const uxp = require("uxp");
+    return (uxp.storage && uxp.storage.secureStorage) || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function resolveFileStore() {
+  try {
+    const uxp = require("uxp");
+    return settingsApi.createPluginFileStore(uxp.storage);
+  } catch (_err) {
+    return null;
+  }
+}
 
 function mountPanel() {
   if (mounted) return;
   const root = document.getElementById("app") || document.body;
   const host = createPremiereHost();
-  const storage = typeof localStorage !== "undefined" ? localStorage : null;
-  let secureStorage = null;
-  try {
-    const uxp = require("uxp");
-    secureStorage = uxp.storage && uxp.storage.secureStorage;
-  } catch (_err) {
-    secureStorage = null;
-  }
   const controller = createPanelController({
     root,
     host,
-    storage,
-    secureStorage
+    storage: resolveStorage(),
+    secureStorage: resolveSecureStorage(),
+    fileStore: resolveFileStore()
   });
   mounted = true;
   controller.mount();

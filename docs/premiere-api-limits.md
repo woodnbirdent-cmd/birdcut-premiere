@@ -23,6 +23,8 @@ Sources: [Premiere UXP API](https://developer.adobe.com/premiere-pro/uxp/), [Seq
 | Network | UXP `fetch` + manifest `requiredPermissions.network` | Whisper HTTP. `domains: "all"` remains because Settings allows a **user-configured** base URL. Marketplace builds should lock this to known hosts. |
 | Files | `uxp.storage.localFileSystem` **`fullAccess`** | Required to read `getMediaFilePath()` media and write bounced WAV/MP3 under the plugin temp folder. |
 | Secrets | `uxp.storage.secureStorage` when present | Fallback: plugin localStorage. Never commit keys. |
+| Settings | `uxp.storage.localStorage` + plugin data folder file | `window.localStorage` is unreliable in some Premiere UXP hosts. Provider changes auto-save. |
+| Panel scroll | CSS `overflow-y: scroll` + `min-height: 0` on `.pane` | Premiere often ignores `overflow: auto` on flex children. Unload→Load after CSS pulls. |
 
 ## Transcribe / bounce (Premiere 26)
 

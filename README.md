@@ -23,7 +23,7 @@ Node 18+ is optional and only needed for `npm test` / the browser preview.
 5. In Premiere: **Window → UXP Plugins → BirdCut**.
 6. Dock the panel next to the source monitor or timeline.
 
-If you change `manifest.json` (this release does — filesystem permission is `fullAccess`), **Unload** then **Load** again. Reload is enough for JS/CSS-only pulls.
+If you change `manifest.json` (this release does — filesystem permission is `fullAccess`), **Unload** then **Load** again. After any `git pull` on a machine that already loaded BirdCut, prefer **Unload → Load** so JS/CSS (scroll + settings persistence) actually replace the in-memory plugin. Reload-only can leave a stale panel.
 
 There is no extra build step.
 
@@ -40,10 +40,10 @@ To transcribe **your** sequence or clip:
 
 1. Open the sequence that contains the demo clip.
 2. BirdCut **Settings**:
-   - **STT provider** → `OpenAI Whisper-compatible HTTP`
+   - **STT provider** → `OpenAI Whisper-compatible HTTP` (saves immediately; the top bar switches to **Transcribe sequence** / **Clip** without a separate Save)
    - **Whisper base URL** → `https://api.openai.com/v1` (or your local server)
-   - **API key** → paste the key → **Save settings** (stored locally; never committed)
-   - Optional: **Choose .epr…** and pick an MP3 or WAV audio-only preset (needed when BirdCut must bounce mixed timeline audio, or when the source file is larger than ~25 MB).
+   - **API key** → paste the key → **Save settings** (stored in UXP secure storage / plugin data; never committed)
+   - Optional: **Choose .epr…** and pick an MP3 or WAV audio-only preset (needed when BirdCut must bounce mixed timeline audio, or when the source file is larger than ~25 MB). This does not reset the provider.
 3. Click **Transcribe sequence** to bounce the **active sequence** mix, upload it, and load word timings aligned to sequence time.
 4. Or select the demo clip on the timeline and click **Clip**. BirdCut prefers `getMediaFilePath()` when that file is already on disk and small enough for Whisper; otherwise it bounces that clip/range.
 5. Watch the status bar: `exporting…` → `uploading…` → `mapping words…`. Errors name the fix (no key, missing preset, network blocked, empty audio).
@@ -52,11 +52,12 @@ To transcribe **your** sequence or clip:
 
 ## After pulling this branch (UXP Developer Tool)
 
-1. `git pull` the PR branch.
-2. In UDT, select BirdCut → **Unload** → **Load** (manifest changed).
-3. Open the BirdCut panel in Premiere.
-4. Settings → Whisper → paste key → Save.
+1. `git pull` (or check out the PR branch).
+2. In UDT, select BirdCut → **Unload** → **Load**. Do this even for JS/CSS-only pulls so Premiere 26 does not keep the previous panel.
+3. Open **Window → UXP Plugins → BirdCut**.
+4. Settings → Whisper (sticks immediately). Paste an API key → **Save settings**.
 5. Open your sequence → **Transcribe sequence**, or select the clip → **Clip**.
+6. Confirm the Transcript and Settings panes scroll with the trackpad. If a pane still does not scroll, Unload → Load once more after this pull.
 
 ## First run (editing)
 

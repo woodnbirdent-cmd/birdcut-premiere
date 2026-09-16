@@ -2,7 +2,8 @@
 
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { createPanelController } = require("../src/ui/panel");
+const { createPanelController, readSettingsFromForm } = require("../src/ui/panel");
+const settings = require("../src/core/settings");
 const fixture = require("../fixtures/sample-transcript.json");
 
 function fakeRoot() {
@@ -149,5 +150,142 @@ describe("panel controller", () => {
     } finally {
       global.fetch = origFetch;
     }
+  });
+
+  it("readSettingsFromForm captures Whisper without a submit", () => {
+    const form = {
+      querySelector(sel) {
+        const match = /\[name=["']?(\w+)["']?\]/.exec(sel);
+        const name = match && match[1];
+        const values = {
+          language: { value: "en" },
+          sttProvider: { value: "whisper" },
+          whisperBaseUrl: { value: "https://api.openai.com/v1" },
+          whisperModel: { value: "whisper-1" },
+          fillerList: { value: "um" },
+          textSize: { value: "md" },
+          silenceThresholdMs: { value: "700" },
+          padCutMs: { value: "40" },
+          includeSpeakerInCaptions: { checked: true, value: "on" },
+          transcribeSource: { value: "sequence" },
+          audioPresetPath: { value: "" },
+          apiKey: { value: "" }
+        };
+        return values[name] || null;
+      }
+    };
+    const data = readSettingsFromForm(form);
+    assert.equal(data.sttProvider, "whisper");
+    assert.equal(Object.prototype.hasOwnProperty.call(data, "apiKey"), false);
+  });
+
+  it("Whisper sticks across a later preset-only save and a storage reload", async () => {
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const host = {
+      available: false,
+      async getStatus() {
+        return { available: false, message: "Preview host", sequenceName: "Demo" };
+      }
+    };
+    const root = fakeRoot();
+    const controller = createPanelController({
+      root,
+      host,
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.saveSettings({ sttProvider: "whisper" });
+    assert.equal(controller.getState().settings.sttProvider, "whisper");
+    await controller.saveSettings({ audioPresetPath: "/tmp/audio.epr" });
+    assert.equal(controller.getState().settings.sttProvider, "whisper");
+    assert.equal(controller.getState().settings.audioPresetPath, "/tmp/audio.epr");
+    const reloaded = settings.createSettingsStore(storage);
+    await reloaded.load();
+    assert.equal(reloaded.get().sttProvider, "whisper");
+    assert.match(root.innerHTML, /class="pane"/);
+    assert.match(root.innerHTML, /Transcribe sequence/);
+  });
+
+  it("flushing a live settings form keeps Whisper through persist + render", async () => {
+    const values = {
+      language: "en",
+      sttProvider: "mock",
+      whisperBaseUrl: "https://api.openai.com/v1",
+      whisperModel: "whisper-1",
+      fillerList: "um",
+      textSize: "md",
+      silenceThresholdMs: "700",
+      padCutMs: "40",
+      includeSpeakerInCaptions: true,
+      transcribeSource: "sequence",
+      audioPresetPath: "",
+      apiKey: ""
+    };
+    const form = {
+      querySelector(sel) {
+        const match = /\[name=["']?(\w+)["']?\]/.exec(sel);
+        const name = match && match[1];
+        if (!name || !(name in values)) return null;
+        if (name === "includeSpeakerInCaptions") {
+          return { checked: Boolean(values[name]), value: values[name] };
+        }
+        return { value: values[name] };
+      },
+      addEventListener() {}
+    };
+    const root = {
+      innerHTML: "",
+      ownerDocument: { addEventListener() {} },
+      querySelector(sel) {
+        if (sel === "#settings-form") return form;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      }
+    };
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const controller = createPanelController({
+      root,
+      host: {
+        available: false,
+        async getStatus() {
+          return { available: false, message: "Preview host", sequenceName: "Demo" };
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    values.sttProvider = "whisper";
+    await controller.persistFormSettings({ rerender: true });
+    assert.equal(controller.getState().settings.sttProvider, "whisper");
+    values.audioPresetPath = "/tmp/mix.epr";
+    await controller.saveSettings({ audioPresetPath: "/tmp/mix.epr" });
+    assert.equal(controller.getState().settings.sttProvider, "whisper");
+    assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).sttProvider, "whisper");
   });
 });

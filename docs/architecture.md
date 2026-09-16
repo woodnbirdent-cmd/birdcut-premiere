@@ -53,6 +53,8 @@ Cut-planning is the source of truth and is unit-tested. Premiere apply is best-e
 
 API keys are read from Settings (UXP `secureStorage` when present, else plugin `localStorage`) or `BIRDCUT_STT_API_KEY` for Node. They are never hardcoded and are omitted from the public settings snapshot.
 
+Non-secret settings persist to both `uxp.storage.localStorage` (preferred over `window.localStorage`, which Premiere UXP may drop) **and** `birdcut-settings.json` in the plugin data folder (`localFileSystem.getDataFolder()`). Changing the STT provider saves immediately so tab switches and **Choose .epr…** cannot snap the select back to Mock.
+
 ## Trim drafts
 
 Each tool produces a **draft** (`wordIdsToDelete` and optional `clipWindows`) without immediately changing the timeline:

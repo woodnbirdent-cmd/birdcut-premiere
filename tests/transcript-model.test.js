@@ -43,9 +43,10 @@ describe("transcript model", () => {
 });
 
 describe("settings", () => {
-  it("keeps API keys out of the public snapshot", async () => {
-    const memory = {};
-    const storage = {
+  function memoryStorage(seed) {
+    const memory = Object.assign({}, seed);
+    return {
+      _data: memory,
       getItem(key) {
         return Object.prototype.hasOwnProperty.call(memory, key) ? memory[key] : null;
       },
@@ -56,6 +57,25 @@ describe("settings", () => {
         delete memory[key];
       }
     };
+  }
+
+  function memoryFileStore(seed) {
+    let payload = seed ? JSON.parse(JSON.stringify(seed)) : null;
+    return {
+      async read() {
+        return payload ? JSON.parse(JSON.stringify(payload)) : null;
+      },
+      async write(value) {
+        payload = JSON.parse(JSON.stringify(value));
+      },
+      snapshot() {
+        return payload;
+      }
+    };
+  }
+
+  it("keeps API keys out of the public snapshot", async () => {
+    const storage = memoryStorage();
     const store = settings.createSettingsStore(storage);
     await store.save({ sttProvider: "whisper", apiKey: "sk-test-secret" });
     const snap = store.get();
@@ -63,6 +83,81 @@ describe("settings", () => {
     assert.equal(snap.hasApiKey, true);
     assert.equal(Object.prototype.hasOwnProperty.call(snap, "apiKey"), false);
     assert.equal(store.getApiKey(), "sk-test-secret");
-    assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).sttProvider, "whisper");
+    assert.equal(JSON.parse(storage._data[settings.STORAGE_KEY]).sttProvider, "whisper");
+    assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(storage._data[settings.STORAGE_KEY]), "apiKey"), false);
+  });
+
+  it("normalizes whisper vs unknown providers", () => {
+    assert.equal(settings.normalizeSettings({ sttProvider: "whisper" }).sttProvider, "whisper");
+    assert.equal(settings.normalizeSettings({ sttProvider: "demo" }).sttProvider, "mock");
+    assert.equal(settings.normalizeSettings({}).sttProvider, "mock");
+  });
+
+  it("partial save keeps the current STT provider", async () => {
+    const store = settings.createSettingsStore(memoryStorage());
+    await store.save({ sttProvider: "whisper", whisperModel: "whisper-1" });
+    await store.save({ audioPresetPath: "/tmp/audio.epr" });
+    assert.equal(store.get().sttProvider, "whisper");
+    assert.equal(store.get().audioPresetPath, "/tmp/audio.epr");
+  });
+
+  it("reloads Whisper from the plugin data folder when localStorage is empty", async () => {
+    const fileStore = memoryFileStore();
+    const store = settings.createSettingsStore(memoryStorage(), null, fileStore);
+    await store.save({ sttProvider: "whisper", language: "es" });
+    const reloaded = settings.createSettingsStore(memoryStorage(), null, fileStore);
+    await reloaded.load();
+    assert.equal(reloaded.get().sttProvider, "whisper");
+    assert.equal(reloaded.get().language, "es");
+  });
+
+  it("migrates localStorage settings into the plugin data folder", async () => {
+    const storage = memoryStorage({
+      [settings.STORAGE_KEY]: JSON.stringify({ sttProvider: "whisper" })
+    });
+    const fileStore = memoryFileStore();
+    const store = settings.createSettingsStore(storage, null, fileStore);
+    await store.load();
+    assert.equal(store.get().sttProvider, "whisper");
+    assert.equal(fileStore.snapshot().sttProvider, "whisper");
+  });
+
+  it("createPluginFileStore round-trips JSON in the data folder", async () => {
+    const files = {};
+    const folder = {
+      async getEntry(name) {
+        if (!Object.prototype.hasOwnProperty.call(files, name)) throw new Error("missing");
+        return {
+          async read() {
+            return files[name];
+          },
+          async write(value) {
+            files[name] = value;
+          }
+        };
+      },
+      async createFile(name) {
+        files[name] = files[name] || "";
+        return {
+          async read() {
+            return files[name];
+          },
+          async write(value) {
+            files[name] = value;
+          }
+        };
+      }
+    };
+    const fileStore = settings.createPluginFileStore({
+      localFileSystem: {
+        async getDataFolder() {
+          return folder;
+        }
+      }
+    });
+    await fileStore.write({ sttProvider: "whisper" });
+    const loaded = await fileStore.read();
+    assert.equal(loaded.sttProvider, "whisper");
+    assert.ok(files[settings.SETTINGS_FILE]);
   });
 });
