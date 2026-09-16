@@ -1,0 +1,26 @@
+{
+  "name": "birdcut-premiere",
+  "version": "0.1.0",
+  "description": "BirdCut — text-based editing panel for Adobe Premiere Pro (UXP)",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "preview": "node scripts/preview-server.js",
+    "icons": "python3 scripts/generate-icons.py",
+    "sync-fixture": "node -e \"const fs=require('fs');const d=require('./fixtures/sample-transcript.json');fs.writeFileSync('fixtures/sample-transcript-data.js','\\\"use strict\\\";\\nconst data = '+JSON.stringify(d,null,2)+';\\nif (typeof module !== \\\"undefined\\\" && module.exports) {\\n  module.exports = data;\\n}\\nif (typeof globalThis !== \\\"undefined\\\") {\\n  globalThis.BirdCutSampleTranscript = data;\\n}\\n');\"",
+    "build": "node -e \"console.log('BirdCut is loaded as source by UXP; no bundle step required.');\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "adobe",
+    "premiere-pro",
+    "uxp",
+    "transcript",
+    "captions",
+    "birdcut"
+  ]
+}
