@@ -22,18 +22,34 @@ html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
   height: 100%;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
   background: var(--bg);
   color: var(--text);
   font-family: "Adobe Clean", "Segoe UI", sans-serif;
   font-size: 12px;
 }
 
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
 .app {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
   height: 100%;
-  min-height: 360px;
+  min-height: 0;
+  overflow: visible;
 }
 
 .app.text-sm { font-size: 11px; }
@@ -57,6 +73,12 @@ body {
 .plan,
 .draft {
   padding: 8px 10px;
+}
+
+.topbar,
+.tabs,
+.status {
+  flex-shrink: 0;
 }
 
 .topbar {
@@ -169,9 +191,21 @@ textarea {
 }
 
 .pane {
-  flex: 1;
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
   padding: 8px 10px 12px;
+  overscroll-behavior: contain;
+}
+
+.pane::-webkit-scrollbar {
+  width: 10px;
+}
+
+.pane::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
 }
 
 .toolbar input {

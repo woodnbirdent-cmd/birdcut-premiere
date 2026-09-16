@@ -2,6 +2,7 @@
 (function (root) {
 const STORAGE_KEY = "birdcut.settings.v1";
 const SECRET_KEY = "birdcut.stt.apiKey";
+const SETTINGS_FILE = "birdcut-settings.json";
 
 const DEFAULT_FILLERS = [
   "um",
@@ -65,25 +66,108 @@ function normalizeSettings(raw) {
   };
 }
 
-function createSettingsStore(storage, secureStorage) {
-  const memory = { settings: normalizeSettings(DEFAULT_SETTINGS), apiKey: envApiKey() };
+function resolveWebStorage(preferred) {
+  if (preferred && typeof preferred.getItem === "function") return preferred;
+  try {
+    if (typeof require === "function") {
+      const uxp = require("uxp");
+      if (uxp && uxp.storage && uxp.storage.localStorage && typeof uxp.storage.localStorage.getItem === "function") {
+        return uxp.storage.localStorage;
+      }
+    }
+  } catch (_err) {
+    /* Node tests / browser preview */
+  }
+  if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") {
+    return localStorage;
+  }
+  return preferred || null;
+}
 
-  async function readJson(key, fallback) {
+function createPluginFileStore(uxpStorage) {
+  if (!uxpStorage || !uxpStorage.localFileSystem || typeof uxpStorage.localFileSystem.getDataFolder !== "function") {
+    return null;
+  }
+  const fs = uxpStorage.localFileSystem;
+  const formats = uxpStorage.formats || {};
+  let folderPromise = null;
+
+  function dataFolder() {
+    if (!folderPromise) folderPromise = fs.getDataFolder();
+    return folderPromise;
+  }
+
+  async function readText(file) {
+    if (formats.utf8) return file.read({ format: formats.utf8 });
+    return file.read();
+  }
+
+  async function writeText(file, payload) {
+    if (formats.utf8) return file.write(payload, { format: formats.utf8 });
+    return file.write(payload);
+  }
+
+  return {
+    async read() {
+      try {
+        const folder = await dataFolder();
+        const file = await folder.getEntry(SETTINGS_FILE);
+        const raw = await readText(file);
+        return raw ? JSON.parse(raw) : null;
+      } catch (_err) {
+        return null;
+      }
+    },
+    async write(value) {
+      const folder = await dataFolder();
+      let file;
+      try {
+        file = await folder.createFile(SETTINGS_FILE, { overwrite: true });
+      } catch (_err) {
+        file = await folder.getEntry(SETTINGS_FILE);
+      }
+      await writeText(file, JSON.stringify(value));
+    }
+  };
+}
+
+function createSettingsStore(storage, secureStorage, fileStore) {
+  const web = resolveWebStorage(storage);
+  const memory = { settings: normalizeSettings(DEFAULT_SETTINGS), apiKey: envApiKey() };
+  let writeQueue = Promise.resolve();
+
+  async function readJson(key) {
     try {
-      if (storage && typeof storage.getItem === "function") {
-        const raw = storage.getItem(key);
-        return raw ? JSON.parse(raw) : fallback;
+      if (web && typeof web.getItem === "function") {
+        const raw = web.getItem(key);
+        return raw ? JSON.parse(raw) : null;
       }
     } catch (_err) {
       /* ignore corrupt storage */
     }
-    return fallback;
+    return null;
   }
 
-  async function writeJson(key, value) {
-    if (storage && typeof storage.setItem === "function") {
-      storage.setItem(key, JSON.stringify(value));
+  async function writeWebJson(key, value) {
+    if (web && typeof web.setItem === "function") {
+      try {
+        web.setItem(key, JSON.stringify(value));
+      } catch (_err) {
+        /* Premiere hosts may reject window.localStorage */
+      }
     }
+  }
+
+  async function persistSettings(next) {
+    writeQueue = writeQueue
+      .then(async () => {
+        await writeWebJson(STORAGE_KEY, next);
+        if (fileStore && typeof fileStore.write === "function") {
+          await fileStore.write(next);
+        }
+      })
+      .catch(() => {});
+    await writeQueue;
   }
 
   async function readSecret() {
@@ -96,8 +180,8 @@ function createSettingsStore(storage, secureStorage) {
       /* Premiere hosts may not expose secureStorage */
     }
     try {
-      if (storage && typeof storage.getItem === "function") {
-        return storage.getItem(SECRET_KEY) || "";
+      if (web && typeof web.getItem === "function") {
+        return web.getItem(SECRET_KEY) || "";
       }
     } catch (_err) {
       /* ignore */
@@ -115,15 +199,34 @@ function createSettingsStore(storage, secureStorage) {
     } catch (_err) {
       /* fallback below */
     }
-    if (storage && typeof storage.setItem === "function") {
-      if (memory.apiKey) storage.setItem(SECRET_KEY, memory.apiKey);
-      else if (typeof storage.removeItem === "function") storage.removeItem(SECRET_KEY);
+    if (web && typeof web.setItem === "function") {
+      if (memory.apiKey) web.setItem(SECRET_KEY, memory.apiKey);
+      else if (typeof web.removeItem === "function") web.removeItem(SECRET_KEY);
     }
   }
 
   return {
     async load() {
-      memory.settings = normalizeSettings(await readJson(STORAGE_KEY, DEFAULT_SETTINGS));
+      const fromLs = await readJson(STORAGE_KEY);
+      let fromFile = null;
+      if (fileStore && typeof fileStore.read === "function") {
+        try {
+          fromFile = await fileStore.read();
+        } catch (_err) {
+          fromFile = null;
+        }
+      }
+      const raw = fromFile || fromLs || DEFAULT_SETTINGS;
+      memory.settings = normalizeSettings(raw);
+      if (fromFile && !fromLs) {
+        await writeWebJson(STORAGE_KEY, memory.settings);
+      } else if (fromLs && !fromFile && fileStore && typeof fileStore.write === "function") {
+        try {
+          await fileStore.write(memory.settings);
+        } catch (_err) {
+          /* ignore */
+        }
+      }
       memory.apiKey = (await readSecret()) || envApiKey();
       return this.get();
     },
@@ -140,7 +243,7 @@ function createSettingsStore(storage, secureStorage) {
     async save(partial) {
       const next = normalizeSettings({ ...memory.settings, ...partial });
       memory.settings = next;
-      await writeJson(STORAGE_KEY, next);
+      await persistSettings(next);
       if (Object.prototype.hasOwnProperty.call(partial, "apiKey")) {
         await writeSecret(partial.apiKey);
       }
@@ -152,10 +255,13 @@ function createSettingsStore(storage, secureStorage) {
 const api = {
   STORAGE_KEY,
   SECRET_KEY,
+  SETTINGS_FILE,
   DEFAULT_FILLERS,
   DEFAULT_SETTINGS,
   normalizeSettings,
   createSettingsStore,
+  createPluginFileStore,
+  resolveWebStorage,
   envApiKey
 };
 
