@@ -657,8 +657,8 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
 
   function bind() {
     root.querySelectorAll("[data-tab]").forEach((button) => {
-      button.addEventListener("click", () => {
-        flushFormIntoState();
+      button.addEventListener("click", async () => {
+        await persistFormSettings({ rerender: false });
         state.tab = button.getAttribute("data-tab");
         render();
       });
@@ -742,18 +742,28 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         event.preventDefault();
         saveSettingsFromForm();
       });
-      form.addEventListener("change", (event) => {
-        const name = event.target && event.target.getAttribute ? event.target.getAttribute("name") : "";
-        if (name === "sttProvider" || name === "textSize") {
-          persistFormSettings({
-            rerender: true,
-            message: name === "sttProvider" ? "STT provider saved." : "",
-            tone: "ok"
-          });
-          return;
+      const persistFromControl = async (control) => {
+        const name = control && (control.name || (control.getAttribute && control.getAttribute("name"))) || "";
+        const fromForm = readSettingsFromForm(form) || {};
+        if (name === "sttProvider" && control && control.value) {
+          fromForm.sttProvider = control.value;
         }
-        persistFormSettings({ rerender: false });
+        const prevProvider = state.settings.sttProvider;
+        const prevSize = state.settings.textSize;
+        state.settings = await settingsStore.save(fromForm);
+        const providerChanged = state.settings.sttProvider !== prevProvider;
+        const sizeChanged = state.settings.textSize !== prevSize;
+        if (providerChanged) setMessage("STT provider saved.", "ok");
+        if (providerChanged || sizeChanged) render();
+      };
+      form.addEventListener("change", (event) => {
+        persistFromControl(event.target);
       });
+      const providerSelect = fieldValue(form, "sttProvider");
+      if (providerSelect) {
+        providerSelect.addEventListener("change", () => persistFromControl(providerSelect));
+        providerSelect.addEventListener("input", () => persistFromControl(providerSelect));
+      }
     }
   }
 

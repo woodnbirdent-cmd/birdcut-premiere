@@ -234,16 +234,42 @@ describe("panel controller", () => {
       apiKey: ""
     };
     const form = {
+      listeners: {},
       querySelector(sel) {
         const match = /\[name=["']?(\w+)["']?\]/.exec(sel);
         const name = match && match[1];
         if (!name || !(name in values)) return null;
         if (name === "includeSpeakerInCaptions") {
-          return { checked: Boolean(values[name]), value: values[name] };
+          return {
+            name,
+            get checked() {
+              return Boolean(values[name]);
+            },
+            get value() {
+              return values[name];
+            },
+            getAttribute: (key) => (key === "name" ? name : "")
+          };
         }
-        return { value: values[name] };
+        return {
+          name,
+          get value() {
+            return values[name];
+          },
+          set value(next) {
+            values[name] = next;
+          },
+          getAttribute: (key) => (key === "name" ? name : ""),
+          addEventListener(type, fn) {
+            form.listeners[`${name}:${type}`] = form.listeners[`${name}:${type}`] || [];
+            form.listeners[`${name}:${type}`].push(fn);
+          }
+        };
       },
-      addEventListener() {}
+      addEventListener(type, fn) {
+        this.listeners[type] = this.listeners[type] || [];
+        this.listeners[type].push(fn);
+      }
     };
     const root = {
       innerHTML: "",
@@ -281,8 +307,12 @@ describe("panel controller", () => {
     });
     await controller.mount();
     values.sttProvider = "whisper";
-    await controller.persistFormSettings({ rerender: true });
+    const changeTarget = form.querySelector('[name="sttProvider"]');
+    const changeEvent = { target: changeTarget };
+    (form.listeners.change || []).forEach((fn) => fn(changeEvent));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(controller.getState().settings.sttProvider, "whisper");
+    assert.match(root.innerHTML, /Transcribe sequence/);
     values.audioPresetPath = "/tmp/mix.epr";
     await controller.saveSettings({ audioPresetPath: "/tmp/mix.epr" });
     assert.equal(controller.getState().settings.sttProvider, "whisper");
