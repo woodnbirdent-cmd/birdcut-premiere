@@ -20,6 +20,7 @@ const settingsApi = load("settings", "BirdCutSettings", "../core/settings");
 const undoApi = load("undo", "BirdCutUndo", "../core/undo-stack");
 const stt = load("stt", "BirdCutStt", "../stt/transcribe");
 const applyCuts = load("apply", "BirdCutApply", "../premiere/apply-cuts");
+const modelErrors = load("errors", "BirdCutErrors", "../stt/errors");
 
 function h(html) {
   return html;
@@ -58,7 +59,8 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     cutPlan: null,
     message: "",
     messageTone: "info",
-    busy: false
+    busy: false,
+    progressStage: ""
   };
 
   function setMessage(message, tone) {
@@ -115,13 +117,46 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     render();
   }
 
-  async function transcribe() {
+  async function transcribe(sourceOverride) {
+    const source =
+      sourceOverride ||
+      (state.settings.sttProvider === "whisper" ? state.settings.transcribeSource : "mock");
     state.busy = true;
-    setMessage("Transcribing…", "info");
+    state.progressStage = "starting";
+    setMessage(
+      state.settings.sttProvider === "mock" ? "Loading demo transcript…" : "Preparing audio…",
+      "info"
+    );
     render();
+    const onProgress = ({ stage, message }) => {
+      state.progressStage = stage || "";
+      setMessage(message || "Working…", "info");
+      render();
+    };
     try {
-      let input = {};
-      if (state.settings.sttProvider === "whisper" && typeof host.pickAudioFile === "function") {
+      if (state.settings.sttProvider === "mock") {
+        const transcript = await stt.transcribeAudio({}, state.settings, {
+          fixture,
+          onProgress
+        });
+        commitTranscript(transcript);
+        history.reset(state.transcript);
+        setMessage(
+          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Whisper to transcribe the active sequence or a selected clip.`,
+          "ok"
+        );
+        return;
+      }
+
+      if (!settingsStore.getApiKey()) {
+        throw new Error("Missing STT API key. Set it in Settings or BIRDCUT_STT_API_KEY.");
+      }
+
+      let input = null;
+      if (source === "file") {
+        if (typeof host.pickAudioFile !== "function") {
+          throw new Error("File picker is not available.");
+        }
         const picked = await host.pickAudioFile();
         if (!picked) {
           setMessage("Transcription cancelled — no file selected.", "warn");
@@ -142,21 +177,35 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
           return;
         }
         input = picked;
+      } else if (typeof host.captureAudio === "function") {
+        input = await host.captureAudio({
+          source: source === "clip" ? "clip" : "sequence",
+          presetPath: state.settings.audioPresetPath,
+          onProgress
+        });
+      } else {
+        throw new Error("This host cannot capture sequence audio. Use Transcribe inside Premiere.");
       }
+
       const transcript = await stt.transcribeAudio(input, state.settings, {
         apiKey: settingsStore.getApiKey(),
-        fixture
+        onProgress
       });
       commitTranscript(transcript);
       history.reset(state.transcript);
-      const status = state.hostStatus.sequenceName
-        ? ` for ${state.hostStatus.sequenceName}`
-        : "";
-      setMessage(`Loaded ${transcript.words.length} words${status}.`, "ok");
+      const where = (input && input.alignment && input.alignment.label) || state.hostStatus.sequenceName || source;
+      setMessage(`Loaded ${transcript.words.length} words from ${where}.`, "ok");
     } catch (err) {
-      setMessage(err.message || String(err), "error");
+      const explained =
+        modelErrors.explainSttError &&
+        modelErrors.explainSttError(err, {
+          baseUrl: state.settings.whisperBaseUrl,
+          source
+        });
+      setMessage(explained || err.message || String(err), "error");
     } finally {
       state.busy = false;
+      state.progressStage = "";
       render();
     }
   }
@@ -311,7 +360,9 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
       textSize: form.querySelector("[name=textSize]").value,
       silenceThresholdMs: form.querySelector("[name=silenceThresholdMs]").value,
       padCutMs: form.querySelector("[name=padCutMs]").value,
-      includeSpeakerInCaptions: form.querySelector("[name=includeSpeakerInCaptions]").checked
+      includeSpeakerInCaptions: form.querySelector("[name=includeSpeakerInCaptions]").checked,
+      transcribeSource: form.querySelector("[name=transcribeSource]").value,
+      audioPresetPath: form.querySelector("[name=audioPresetPath]").value
     };
     const apiKey = form.querySelector("[name=apiKey]").value.trim();
     if (apiKey) data.apiKey = apiKey;
@@ -436,7 +487,7 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
         </label>
         <label>STT provider
           <select name="sttProvider">
-            <option value="mock"${s.sttProvider === "mock" ? " selected" : ""}>Mock / demo transcript</option>
+            <option value="mock"${s.sttProvider === "mock" ? " selected" : ""}>Mock / demo transcript (ignores timeline)</option>
             <option value="whisper"${s.sttProvider === "whisper" ? " selected" : ""}>OpenAI Whisper-compatible HTTP</option>
           </select>
         </label>
@@ -446,6 +497,16 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
         <label>Whisper model
           <input name="whisperModel" value="${escapeHtml(s.whisperModel)}" />
         </label>
+        <label>Transcribe target
+          <select name="transcribeSource">
+            <option value="sequence"${s.transcribeSource !== "clip" ? " selected" : ""}>Active sequence</option>
+            <option value="clip"${s.transcribeSource === "clip" ? " selected" : ""}>Selected clip(s)</option>
+          </select>
+        </label>
+        <label>Audio-only .epr preset (optional)
+          <input name="audioPresetPath" value="${escapeHtml(s.audioPresetPath)}" placeholder="Path to MP3 or WAV preset" />
+        </label>
+        <button type="button" class="btn" id="btn-pick-preset">Choose .epr…</button>
         <label>API key (stored locally, never hardcoded)
           <input name="apiKey" type="password" placeholder="${escapeHtml(s.hasApiKey ? s.apiKeyPreview : "Paste key — or set BIRDCUT_STT_API_KEY")}" />
         </label>
@@ -488,7 +549,13 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
             </div>
           </div>
           <div class="top-actions">
-            <button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>
+            ${
+              state.settings.sttProvider === "whisper"
+                ? `<button type="button" class="btn primary" id="btn-transcribe-sequence"${state.busy ? " disabled" : ""}>Transcribe sequence</button>
+                   <button type="button" class="btn" id="btn-transcribe-clip"${state.busy ? " disabled" : ""}>Clip</button>
+                   <button type="button" class="btn" id="btn-transcribe-file"${state.busy ? " disabled" : ""}>Pick file</button>`
+                : `<button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>`
+            }
             <button type="button" class="btn danger" id="btn-apply"${state.busy ? " disabled" : ""}>Apply to sequence</button>
           </div>
         </header>
@@ -532,6 +599,27 @@ function createPanelController({ root, host, storage, secureStorage, fixture }) 
     });
     const transcribeBtn = root.querySelector("#btn-transcribe");
     if (transcribeBtn) transcribeBtn.addEventListener("click", () => transcribe());
+    const transcribeSeq = root.querySelector("#btn-transcribe-sequence");
+    if (transcribeSeq) transcribeSeq.addEventListener("click", () => transcribe("sequence"));
+    const transcribeClip = root.querySelector("#btn-transcribe-clip");
+    if (transcribeClip) transcribeClip.addEventListener("click", () => transcribe("clip"));
+    const transcribeFile = root.querySelector("#btn-transcribe-file");
+    if (transcribeFile) transcribeFile.addEventListener("click", () => transcribe("file"));
+    const pickPreset = root.querySelector("#btn-pick-preset");
+    if (pickPreset) {
+      pickPreset.addEventListener("click", async () => {
+        if (typeof host.pickPresetFile !== "function") return;
+        const path = await host.pickPresetFile();
+        if (!path) return;
+        const form = root.querySelector("#settings-form");
+        if (form && form.querySelector("[name=audioPresetPath]")) {
+          form.querySelector("[name=audioPresetPath]").value = path;
+        }
+        state.settings = await settingsStore.save({ audioPresetPath: path });
+        setMessage(`Using preset ${path.split(/[/\\]/).pop()}.`, "ok");
+        render();
+      });
+    }
     const applyBtn = root.querySelector("#btn-apply");
     if (applyBtn) applyBtn.addEventListener("click", () => applyToSequence());
     const search = root.querySelector("#search");
