@@ -1,0 +1,14 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.local
+.birdcut.local.json
+dist/
+preview/bundle.js
+.uxp/
+*.ccx
+coverage/
+.vscode/
+.idea/
