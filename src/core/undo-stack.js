@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -57,3 +57,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutUndo = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

@@ -1,4 +1,5 @@
 "use strict";
+(function (root) {
 const data = {
   "version": 1,
   "source": {
@@ -937,3 +938,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutSampleTranscript = data;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

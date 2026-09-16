@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function secondsTick(ppro, ms) {
   return ppro.TickTime.createWithSeconds((Number(ms) || 0) / 1000);
 }
@@ -117,3 +117,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutApply = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

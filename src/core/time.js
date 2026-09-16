@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -66,3 +66,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutTime = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

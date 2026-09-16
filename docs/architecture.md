@@ -1,6 +1,7 @@
 # BirdCut architecture
 
-BirdCut is an Adobe Premiere Pro **UXP panel** (manifest v5, Premiere 25.6+). Core editing logic is plain CommonJS so it can be unit-tested in Node without Premiere. The panel is a thin UI over that core, plus a Premiere host adapter.
+Core modules are CommonJS for Node tests and UXP `require()`, wrapped in an IIFE so the same files can load as classic `<script>` tags in `npm run preview`.
+
 
 ```
 index.html / index.js          UXP entry (panels.birdcut.show)

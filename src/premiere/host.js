@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function tickToMs(tickTime) {
   if (tickTime == null) return 0;
   if (typeof tickTime === "number") return Math.round(tickTime * 1000);
@@ -241,3 +241,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutHost = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

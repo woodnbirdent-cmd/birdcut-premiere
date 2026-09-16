@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function loadModel() {
   if (typeof require === "function") {
     try {
@@ -163,3 +163,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutWhisper = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

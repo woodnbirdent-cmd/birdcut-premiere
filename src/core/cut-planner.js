@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function loadTime() {
   if (typeof require === "function") {
     try {
@@ -256,3 +256,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutPlanner = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

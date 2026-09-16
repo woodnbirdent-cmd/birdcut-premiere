@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function loadDep() {
   if (typeof require === "function") {
     try {
@@ -290,3 +290,5 @@ if (typeof globalThis !== "undefined") {
 }
 
 void time;
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

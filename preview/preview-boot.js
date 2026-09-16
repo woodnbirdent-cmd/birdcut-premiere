@@ -4,10 +4,10 @@ async function bootPreview() {
   const fixture = await fetch("../fixtures/sample-transcript.json").then((response) => response.json());
   globalThis.BirdCutSampleTranscript = fixture;
   const host = {
-    available: false,
+    available: true,
     async getStatus() {
       return {
-        available: false,
+        available: true,
         projectName: "Preview",
         sequenceName: "Demo Sequence",
         durationMs: fixture.durationMs,

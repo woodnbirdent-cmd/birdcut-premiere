@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 const STORAGE_KEY = "birdcut.settings.v1";
 const SECRET_KEY = "birdcut.stt.apiKey";
 
@@ -161,3 +161,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutSettings = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);

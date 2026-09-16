@@ -1,5 +1,5 @@
 "use strict";
-
+(function (root) {
 function loadMock() {
   if (typeof require === "function") {
     try {
@@ -73,3 +73,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof globalThis !== "undefined") {
   globalThis.BirdCutStt = api;
 }
+
+})(typeof globalThis !== "undefined" ? globalThis : this);
