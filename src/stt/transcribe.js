@@ -33,22 +33,41 @@ function loadModel() {
   return globalThis.BirdCutTranscript || {};
 }
 
+function loadAlign() {
+  if (typeof require === "function") {
+    try {
+      return require("./align-transcript");
+    } catch (_err) {
+      /* fall through */
+    }
+  }
+  return globalThis.BirdCutAlign || {};
+}
+
 const mock = loadMock();
 const whisper = loadWhisper();
 const model = loadModel();
+const align = loadAlign();
+
+function emit(onProgress, stage, message) {
+  if (typeof onProgress === "function") onProgress({ stage, message });
+}
 
 async function transcribeAudio(input, settings, deps) {
+  const onProgress = deps && deps.onProgress;
   const provider = settings.sttProvider === "whisper" ? "whisper" : "mock";
   if (provider === "mock") {
+    emit(onProgress, "mapping", "Loading demo transcript…");
     const mockProvider = mock.createMockProvider(deps && deps.fixture);
     return mockProvider.transcribe(input, settings);
   }
 
   if (!input || !input.audioBytes) {
-    throw new Error("Whisper provider needs an audio file. Use Transcribe and pick a WAV/MP3/M4A.");
+    throw new Error("Whisper provider needs audio from the sequence, a selected clip, or a picked WAV/MP3/M4A.");
   }
 
-  const result = await whisper.transcribeWithWhisper({
+  emit(onProgress, "uploading", "Uploading audio to Whisper…");
+  let result = await whisper.transcribeWithWhisper({
     audioBytes: input.audioBytes,
     fileName: input.fileName,
     mimeType: input.mimeType,
@@ -58,6 +77,11 @@ async function transcribeAudio(input, settings, deps) {
     language: settings.language,
     fetchImpl: deps && deps.fetchImpl
   });
+
+  emit(onProgress, "mapping", "Mapping word timings onto the sequence…");
+  if (align.applyAlignment && input.alignment) {
+    result = align.applyAlignment(result, input.alignment);
+  }
 
   return model.annotateFillers(
     model.insertSilenceMarkers(result, { minGapMs: settings.silenceThresholdMs }),

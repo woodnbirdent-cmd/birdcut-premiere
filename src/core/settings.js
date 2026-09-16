@@ -27,7 +27,9 @@ const DEFAULT_SETTINGS = {
   textSize: "md",
   silenceThresholdMs: 700,
   padCutMs: 40,
-  includeSpeakerInCaptions: true
+  includeSpeakerInCaptions: true,
+  transcribeSource: "sequence",
+  audioPresetPath: ""
 };
 
 function envApiKey() {
@@ -57,7 +59,9 @@ function normalizeSettings(raw) {
     includeSpeakerInCaptions:
       input.includeSpeakerInCaptions == null
         ? DEFAULT_SETTINGS.includeSpeakerInCaptions
-        : Boolean(input.includeSpeakerInCaptions)
+        : Boolean(input.includeSpeakerInCaptions),
+    transcribeSource: input.transcribeSource === "clip" ? "clip" : "sequence",
+    audioPresetPath: String(input.audioPresetPath || "").trim()
   };
 }
 

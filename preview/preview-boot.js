@@ -52,7 +52,18 @@ async function bootPreview() {
         message: `Preview: ${ops.length} ops, ${ranges.length} ranges (not sent to Premiere).`
       };
     },
-    async pickAudioFile() {
+    async captureAudio({ source, onProgress }) {
+      if (typeof onProgress === "function") {
+        onProgress({
+          stage: "exporting",
+          message: `Preview cannot bounce Premiere audio (${source}).`
+        });
+      }
+      throw new Error(
+        "Preview cannot bounce Premiere audio. Load BirdCut in Premiere 26, or use Mock / demo transcript."
+      );
+    },
+    async pickPresetFile() {
       return null;
     },
     async saveTextFile(_name, contents) {

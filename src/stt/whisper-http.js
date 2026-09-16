@@ -149,7 +149,14 @@ async function transcribeWithWhisper({
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`Whisper HTTP ${response.status}: ${detail.slice(0, 280)}`);
+    const snippet = detail.slice(0, 280);
+    if (response.status === 401) {
+      throw new Error(`Whisper HTTP 401 unauthorized. ${snippet}`);
+    }
+    if (response.status === 403) {
+      throw new Error(`Whisper HTTP 403 forbidden. ${snippet}`);
+    }
+    throw new Error(`Whisper HTTP ${response.status}: ${snippet}`);
   }
   const payload = await response.json();
   return mapWhisperResponse(payload, fileName || "Whisper");

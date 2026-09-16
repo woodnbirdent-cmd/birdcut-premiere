@@ -45,7 +45,31 @@ describe("stt router", () => {
   it("refuses Whisper without audio bytes", async () => {
     await assert.rejects(
       () => transcribeAudio({}, { sttProvider: "whisper" }, { apiKey: "sk-test" }),
-      /audio file/i
+      /sequence|clip|WAV/i
     );
+  });
+
+  it("maps sequence-bounce Whisper timings using alignment offset", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      json: async () => ({
+        duration: 0.5,
+        words: [{ word: "Hi", start: 0, end: 0.4 }]
+      })
+    });
+    const transcript = await transcribeAudio(
+      {
+        audioBytes: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]),
+        fileName: "bounce.wav",
+        mimeType: "audio/wav",
+        alignment: { kind: "sequence", offsetMs: 3500, label: "Main" }
+      },
+      { sttProvider: "whisper", silenceThresholdMs: 700, fillerList: [] },
+      { apiKey: "sk-test", fetchImpl }
+    );
+    const spoken = transcript.words.filter((word) => !word.isSilence);
+    assert.equal(spoken[0].text, "Hi");
+    assert.equal(spoken[0].startMs, 3500);
+    assert.equal(transcript.source.origin, "sequence");
   });
 });

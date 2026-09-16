@@ -19,6 +19,19 @@ async function call(object, method, ...args) {
   return object[method](...args);
 }
 
+function loadBounce() {
+  if (typeof require === "function") {
+    try {
+      return require("./bounce-audio");
+    } catch (_err) {
+      /* fall through */
+    }
+  }
+  return globalThis.BirdCutBounce || {};
+}
+
+const bounce = loadBounce();
+
 function createUnavailableHost() {
   return {
     available: false,
@@ -42,6 +55,12 @@ function createUnavailableHost() {
       };
     },
     async pickAudioFile() {
+      return null;
+    },
+    async captureAudio() {
+      throw new Error("Premiere is not available. Use mock mode, or load BirdCut inside Premiere to transcribe a sequence.");
+    },
+    async pickPresetFile() {
       return null;
     },
     async saveTextFile() {
@@ -119,6 +138,10 @@ function createPremiereHost(overrides) {
     await readTrack(sequence.getAudioTrack, audioCount, "audio");
     return items;
   }
+
+  const capture = bounce.createAudioCapture
+    ? bounce.createAudioCapture({ ppro, uxp, tickToMs, call })
+    : null;
 
   async function collectMediaPaths(items) {
     const paths = [];
@@ -207,6 +230,19 @@ function createPremiereHost(overrides) {
         audioBytes: bytes,
         isJson: /\.json$/i.test(file.name)
       };
+    },
+    async pickPresetFile() {
+      const fs = uxp && uxp.storage && uxp.storage.localFileSystem;
+      if (!fs || typeof fs.getFileForOpening !== "function") return null;
+      const file = await fs.getFileForOpening({ types: ["epr"] });
+      if (!file) return null;
+      return file.nativePath || file.name;
+    },
+    async captureAudio(options) {
+      if (!capture) {
+        throw new Error("Audio capture is not available in this Premiere build.");
+      }
+      return capture.captureAudio(options);
     },
     async saveTextFile(defaultName, contents, types) {
       const fs = uxp && uxp.storage && uxp.storage.localFileSystem;

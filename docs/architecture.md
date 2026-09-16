@@ -7,8 +7,8 @@ Core modules are CommonJS for Node tests and UXP `require()`, wrapped in an IIFE
 index.html / index.js          UXP entry (panels.birdcut.show)
 src/ui/panel.js                Dark compact UI: Transcript, Trim, Captions, Settings
 src/core/                      Transcript model, undo, cut planner, captions, trim drafts, settings
-src/stt/                       Mock fixture provider + Whisper-compatible HTTP client
-src/premiere/                  Sequence snapshot + best-effort apply via premierepro
+src/stt/                       Mock fixture + Whisper HTTP + bounce timing alignment
+src/premiere/                  Sequence snapshot, audio capture/bounce, apply via premierepro
 fixtures/sample-transcript.json
 tests/                         node --test
 ```
@@ -48,8 +48,8 @@ Cut-planning is the source of truth and is unit-tested. Premiere apply is best-e
 
 | Provider | Behavior |
 | --- | --- |
-| `mock` | Loads `fixtures/sample-transcript.json` (also used when Premiere cannot bounce sequence audio). |
-| `whisper` | `POST {baseUrl}/audio/transcriptions` with `response_format=verbose_json` and word timestamps. Compatible with OpenAI Whisper and local drop-in servers. |
+| `mock` | Loads `fixtures/sample-transcript.json`. Ignores timeline media (offline demo). |
+| `whisper` | Captures **active sequence** (`exportSequence` + audio `.epr`) or **selected clip** (`getMediaFilePath()` when possible, else encode/bounce), then `POST {baseUrl}/audio/transcriptions` with word timestamps. Times are mapped onto sequence time (`src/stt/align-transcript.js`). |
 
 API keys are read from Settings (UXP `secureStorage` when present, else plugin `localStorage`) or `BIRDCUT_STT_API_KEY` for Node. They are never hardcoded and are omitted from the public settings snapshot.
 

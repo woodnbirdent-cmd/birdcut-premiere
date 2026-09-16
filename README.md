@@ -1,68 +1,73 @@
 # BirdCut
 
-BirdCut is a Premiere Pro UXP panel for **text-based editing**: transcribe a sequence (or load a demo/JSON transcript), delete words, preview trim drafts, export captions, and apply a ripple cut plan to the timeline.
+BirdCut is a Premiere Pro UXP panel for **text-based editing**: transcribe the active sequence or a selected clip, delete words, preview trim drafts, export captions, and apply a ripple cut plan to the timeline.
 
 It is inspired by the *feature goals* of tools like Premiere Assistant-style transcript editors. It does **not** copy anyone else’s branding, name, or assets.
 
 ## Requirements
 
-- Adobe Premiere Pro **25.6 or later** (Windows or macOS)
+- Adobe Premiere Pro **25.6 or later** (tested target: **Premiere Pro 26 on Mac**)
 - [UXP Developer Tool](https://developer.adobe.com/premiere-pro/uxp/plugins/) **2.2+**
 - Premiere **Developer Mode**: Settings → Plugins → Enable developer mode (restart Premiere)
+- For real transcription: a Whisper-compatible HTTP endpoint and API key (OpenAI or local drop-in)
+- For sequence bounce: an **audio-only Adobe Media Encoder preset** (`.epr`, MP3 preferred). See `docs/premiere-api-limits.md`.
 
 Node 18+ is optional and only needed for `npm test` / the browser preview.
 
 ## Load in Premiere (Win / Mac)
 
-1. Clone this repo.
-2. Launch **Premiere Pro**, then **UXP Developer Tool**. Confirm UDT is connected to Premiere (Premiere appears in the left pane).
-3. **Add Plugin** → select this folder (`birdcut-premiere`, the directory that contains `manifest.json`).
+1. Clone this repo (or pull the branch you want).
+2. Launch **Premiere Pro**, then **UXP Developer Tool**. Confirm UDT is connected to Premiere.
+3. **Add Plugin** → select this folder (the directory that contains `manifest.json`).
 4. Click **Load** (or **Load & Watch** while developing).
-5. In Premiere: **Window → UXP Plugins → BirdCut** (wording varies slightly by version; the panel id is `birdcut`).
+5. In Premiere: **Window → UXP Plugins → BirdCut**.
 6. Dock the panel next to the source monitor or timeline.
 
-If you change `manifest.json`, **Unload** then **Load** again. Reload is enough for JS/CSS.
+If you change `manifest.json` (this release does — filesystem permission is `fullAccess`), **Unload** then **Load** again. Reload is enough for JS/CSS-only pulls.
 
-There is no extra build step. UXP loads the source files listed from `index.html` / `index.js`.
+There is no extra build step.
 
 ```bash
-npm test          # cut planner, captions, trim drafts, STT mapper
+npm test          # cut planner, captions, STT alignment, trim drafts
 npm run preview   # browser demo of the panel UI (Premiere APIs mocked)
 ```
 
-## First run
+## Transcribe a demo clip (Premiere 26 / Mac)
 
-1. Open a sequence (or just explore with the mock transcript).
-2. **Settings**: language, STT provider, filler list, text size.
-3. **Transcribe**
-   - **Mock / demo transcript** — loads `fixtures/sample-transcript.json` (speakers, silences, fillers, a retake). Always available, including without media.
-   - **OpenAI Whisper-compatible HTTP** — pick a WAV/MP3/M4A (or a BirdCut JSON transcript). Set base URL + model + API key in Settings. The key is stored locally; you can also set `BIRDCUT_STT_API_KEY` for Node tests. Never commit secrets.
-4. On **Transcript**: search, click words (Shift for a range), **Delete**, **Undo** / **Redo**. Silence markers are italic; fillers are highlighted.
-5. **Trim**: preview Remove silence / fillers / retakes / shortform clips. **Save draft** or **Discard**. Saving writes into the transcript and updates the cut plan.
-6. **Captions**: review cues and **Export SRT**.
-7. **Apply to sequence** executes the cut plan through Premiere UXP actions. **Save your project first.** Middle cuts are reconstructed without a razor API — read `docs/premiere-api-limits.md`.
+Mock mode always loads `fixtures/sample-transcript.json` and **ignores** timeline media. That is intentional for offline UI demos.
+
+To transcribe **your** sequence or clip:
+
+1. Open the sequence that contains the demo clip.
+2. BirdCut **Settings**:
+   - **STT provider** → `OpenAI Whisper-compatible HTTP`
+   - **Whisper base URL** → `https://api.openai.com/v1` (or your local server)
+   - **API key** → paste the key → **Save settings** (stored locally; never committed)
+   - Optional: **Choose .epr…** and pick an MP3 or WAV audio-only preset (needed when BirdCut must bounce mixed timeline audio, or when the source file is larger than ~25 MB).
+3. Click **Transcribe sequence** to bounce the **active sequence** mix, upload it, and load word timings aligned to sequence time.
+4. Or select the demo clip on the timeline and click **Clip**. BirdCut prefers `getMediaFilePath()` when that file is already on disk and small enough for Whisper; otherwise it bounces that clip/range.
+5. Watch the status bar: `exporting…` → `uploading…` → `mapping words…`. Errors name the fix (no key, missing preset, network blocked, empty audio).
+
+**Pick file** remains a fallback if bounce is unavailable.
+
+## After pulling this branch (UXP Developer Tool)
+
+1. `git pull` the PR branch.
+2. In UDT, select BirdCut → **Unload** → **Load** (manifest changed).
+3. Open the BirdCut panel in Premiere.
+4. Settings → Whisper → paste key → Save.
+5. Open your sequence → **Transcribe sequence**, or select the clip → **Clip**.
+
+## First run (editing)
+
+1. On **Transcript**: search, click words (Shift for a range), **Delete**, **Undo** / **Redo**.
+2. **Trim**: preview silence / fillers / retakes / shortform. **Save draft** or **Discard**.
+3. **Captions**: **Export SRT**.
+4. **Apply to sequence** — save the project first. See `docs/premiere-api-limits.md`.
 
 ## Transcript JSON
 
-See `fixtures/sample-transcript.json` and `docs/architecture.md`. Shape:
-
-```json
-{
-  "words": [{ "text": "Hello", "startMs": 0, "endMs": 400, "speakerId": "s1" }],
-  "speakers": [{ "id": "s1", "label": "Alex" }],
-  "chapters": [{ "id": "c1", "title": "Hook", "startMs": 0, "endMs": 28000 }]
-}
-```
-
-## Project layout
-
-| Path | Role |
-| --- | --- |
-| `manifest.json` | UXP plugin id `com.birdcut.premiere` |
-| `src/core/cut-planner.js` | Deleted words → remove ranges → track edit ops |
-| `src/stt/whisper-http.js` | Whisper-compatible client |
-| `docs/architecture.md` | Module map |
-| `docs/premiere-api-limits.md` | Honest UXP gaps |
+See `fixtures/sample-transcript.json` and `docs/architecture.md`.
 
 ## License
 
