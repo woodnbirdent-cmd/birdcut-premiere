@@ -69,6 +69,27 @@ describe("Adobe language mapping", () => {
     assert.equal(adobeLang.resolveAdobeLanguage("en", []), "en-US");
     assert.equal(adobeLang.resolveAdobeLanguage("zz", supported), "");
   });
+
+  it("omits language when the pack is unavailable or the supported list is empty", () => {
+    const ok = adobeLang.languageForTranscribe("en", supported, () => true);
+    assert.equal(ok.languageCode, "en-US");
+    assert.equal(ok.reason, "ok");
+
+    const missing = adobeLang.languageForTranscribe("en", supported, () => false);
+    assert.equal(missing.languageCode, "");
+    assert.equal(missing.skippedCode, "en-US");
+    assert.equal(missing.reason, "pack-unavailable");
+
+    const unverified = adobeLang.languageForTranscribe("en", [], () => true);
+    assert.equal(unverified.languageCode, "");
+    assert.equal(unverified.reason, "unverified");
+
+    const failed = adobeLang.languageForTranscribe("en", supported, () => {
+      throw new Error("host");
+    });
+    assert.equal(failed.languageCode, "");
+    assert.equal(failed.reason, "pack-check-failed");
+  });
 });
 
 describe("Adobe STT router", () => {
@@ -108,5 +129,30 @@ describe("Adobe STT router", () => {
     assert.equal(hellos.length, 2);
     assert.equal(hellos[0].startMs, 1740);
     assert.equal(hellos[1].startMs, 21740);
+  });
+
+  it("passes importOnly when the source is import", async () => {
+    const calls = [];
+    await transcribeAudio(
+      { source: "import" },
+      { sttProvider: "adobe", language: "en", silenceThresholdMs: 700, fillerList: [] },
+      {
+        async captureAdobe(opts) {
+          calls.push(opts);
+          return {
+            version: 1,
+            source: { kind: "adobe", label: "Clip" },
+            language: "en",
+            durationMs: 100,
+            words: [{ id: "w1", text: "Hi", startMs: 0, endMs: 100, deleted: false }],
+            speakers: [],
+            chapters: []
+          };
+        }
+      }
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].source, "import");
+    assert.equal(calls[0].importOnly, true);
   });
 });

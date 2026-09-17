@@ -181,7 +181,9 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       provider === "mock"
         ? "Loading demo transcript…"
         : provider === "adobe"
-          ? "Starting Adobe Speech to Text…"
+          ? source === "import"
+            ? "Importing Premiere transcript…"
+            : "Starting Adobe Speech to Text…"
           : "Preparing audio…",
       "info"
     );
@@ -217,7 +219,9 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
+          source === "import"
+            ? `Imported ${transcript.words.length} words from Premiere transcript (${transcript.source && transcript.source.label ? transcript.source.label : "clip"}).`
+            : `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
           "ok"
         );
         return;
@@ -616,7 +620,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         </label>
         ${
           s.sttProvider === "adobe"
-            ? `<p class="muted">Uses Premiere’s Speech to Text on each source clip. No OpenAI key. On-device packs (when installed) stay local; Adobe cloud languages may still use Adobe credits. ${
+            ? `<p class="muted">Uses Premiere’s Speech to Text on each source clip. No OpenAI key. Prefer selecting a ClipProjectItem in the Project panel (not a nested sequence). If Premiere already transcribed the clip (Window → Text), use <strong>Import Premiere transcript</strong> — that only runs exportToJSON. On-device packs stay local; Adobe cloud languages may still use Adobe credits. ${
                 packNote ? `Available: ${escapeHtml(packNote)}.` : "Install language packs in Premiere: Window → Text."
               }</p>`
             : ""
@@ -691,7 +695,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
                    ${
                      state.settings.sttProvider === "whisper"
                        ? `<button type="button" class="btn" id="btn-transcribe-file"${state.busy ? " disabled" : ""}>Pick file</button>`
-                       : ""
+                       : `<button type="button" class="btn" id="btn-import-premiere"${state.busy ? " disabled" : ""}>Import Premiere transcript</button>`
                    }`
                 : `<button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>`
             }
@@ -745,6 +749,8 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     if (transcribeSeq) transcribeSeq.addEventListener("click", () => transcribe("sequence"));
     const transcribeClip = root.querySelector("#btn-transcribe-clip");
     if (transcribeClip) transcribeClip.addEventListener("click", () => transcribe("clip"));
+    const importPremiere = root.querySelector("#btn-import-premiere");
+    if (importPremiere) importPremiere.addEventListener("click", () => transcribe("import"));
     const transcribeFile = root.querySelector("#btn-transcribe-file");
     if (transcribeFile) transcribeFile.addEventListener("click", () => transcribe("file"));
     const pickPreset = root.querySelector("#btn-pick-preset");

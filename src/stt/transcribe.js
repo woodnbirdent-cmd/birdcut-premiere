@@ -94,6 +94,7 @@ async function transcribeAudio(input, settings, deps) {
       result = await deps.captureAdobe({
         source: (input && input.source) || settings.transcribeSource || "sequence",
         language: settings.language,
+        importOnly: (input && input.source) === "import",
         onProgress
       });
     } else {

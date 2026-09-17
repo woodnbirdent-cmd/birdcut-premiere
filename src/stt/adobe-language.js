@@ -123,7 +123,30 @@ function resolveAdobeLanguage(settingsLanguage, supportedLanguages) {
   return "";
 }
 
-const api = { SHORT_TO_ADOBE, candidateCodes, resolveAdobeLanguage };
+function languageForTranscribe(settingsLanguage, supportedLanguages, isLanguagePackAvailable) {
+  const supported = Array.isArray(supportedLanguages) ? supportedLanguages : [];
+  const code = resolveAdobeLanguage(settingsLanguage, supported);
+  if (!code) {
+    return { languageCode: "", reason: "none" };
+  }
+  if (!supported.length) {
+    return { languageCode: "", skippedCode: code, reason: "unverified" };
+  }
+  if (typeof isLanguagePackAvailable === "function") {
+    let available = false;
+    try {
+      available = Boolean(isLanguagePackAvailable(code));
+    } catch (_err) {
+      return { languageCode: "", skippedCode: code, reason: "pack-check-failed" };
+    }
+    if (!available) {
+      return { languageCode: "", skippedCode: code, reason: "pack-unavailable" };
+    }
+  }
+  return { languageCode: code, reason: "ok" };
+}
+
+const api = { SHORT_TO_ADOBE, candidateCodes, resolveAdobeLanguage, languageForTranscribe };
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = api;
