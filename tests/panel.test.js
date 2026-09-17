@@ -349,11 +349,11 @@ describe("panel controller", () => {
         async queryAdobeLanguages() {
           return [{ displayString: "English (US)", languageCode: "en-US", locale: "en-us", packAvailable: true }];
         },
-        async transcribeAdobe({ onProgress }) {
+        async transcribeAdobe({ onProgress, source, importOnly }) {
           onProgress({ stage: "transcribing", message: "Transcribing in Premiere…" });
           onProgress({ stage: "exporting", message: "Exporting transcript…" });
           onProgress({ stage: "mapping", message: "Mapping words…" });
-          stages.push("ran");
+          stages.push({ source, importOnly: Boolean(importOnly) });
           return mapAdobeTranscript(adobe, { label: "Take 1" });
         }
       },
@@ -363,10 +363,14 @@ describe("panel controller", () => {
     await controller.mount();
     await controller.saveSettings({ sttProvider: "adobe" });
     assert.match(root.innerHTML, /Transcribe sequence/);
+    assert.match(root.innerHTML, /Import Premiere transcript/);
     await controller.transcribe("clip");
-    assert.deepEqual(stages, ["ran"]);
+    assert.deepEqual(stages, [{ source: "clip", importOnly: false }]);
     const spoken = controller.getState().transcript.words.filter((word) => !word.isSilence);
     assert.equal(spoken[0].text, "Hello");
     assert.match(controller.getState().message, /Adobe Speech to Text/i);
+    await controller.transcribe("import");
+    assert.deepEqual(stages[1], { source: "import", importOnly: true });
+    assert.match(controller.getState().message, /Imported .*Premiere transcript/i);
   });
 });

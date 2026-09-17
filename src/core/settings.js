@@ -19,11 +19,17 @@ const DEFAULT_FILLERS = [
   "i mean"
 ];
 
+const STT_PROVIDERS = ["mock", "adobe", "whisper", "local-whisper"];
+const LOCAL_WHISPER_DEFAULT_URL = "http://127.0.0.1:8090/v1";
+const LOCAL_WHISPER_DEFAULT_MODEL = "base";
+
 const DEFAULT_SETTINGS = {
   language: "en",
   sttProvider: "mock",
   whisperBaseUrl: "https://api.openai.com/v1",
   whisperModel: "whisper-1",
+  localWhisperBaseUrl: LOCAL_WHISPER_DEFAULT_URL,
+  localWhisperModel: LOCAL_WHISPER_DEFAULT_MODEL,
   fillerList: DEFAULT_FILLERS.slice(),
   textSize: "md",
   silenceThresholdMs: 700,
@@ -32,6 +38,10 @@ const DEFAULT_SETTINGS = {
   transcribeSource: "sequence",
   audioPresetPath: ""
 };
+
+function isWhisperLike(provider) {
+  return provider === "whisper" || provider === "local-whisper";
+}
 
 function envApiKey() {
   if (typeof process !== "undefined" && process.env && process.env.BIRDCUT_STT_API_KEY) {
@@ -50,10 +60,14 @@ function normalizeSettings(raw) {
         .filter(Boolean);
   return {
     language: input.language || DEFAULT_SETTINGS.language,
-    sttProvider:
-      input.sttProvider === "whisper" || input.sttProvider === "adobe" ? input.sttProvider : "mock",
+    sttProvider: STT_PROVIDERS.indexOf(input.sttProvider) >= 0 ? input.sttProvider : "mock",
     whisperBaseUrl: String(input.whisperBaseUrl || DEFAULT_SETTINGS.whisperBaseUrl).replace(/\/+$/, ""),
     whisperModel: input.whisperModel || DEFAULT_SETTINGS.whisperModel,
+    localWhisperBaseUrl: String(input.localWhisperBaseUrl || DEFAULT_SETTINGS.localWhisperBaseUrl).replace(
+      /\/+$/,
+      ""
+    ),
+    localWhisperModel: input.localWhisperModel || DEFAULT_SETTINGS.localWhisperModel,
     fillerList: fillerList.length ? fillerList : DEFAULT_FILLERS.slice(),
     textSize: ["sm", "md", "lg"].indexOf(input.textSize) >= 0 ? input.textSize : "md",
     silenceThresholdMs: Math.max(120, Number(input.silenceThresholdMs) || DEFAULT_SETTINGS.silenceThresholdMs),
@@ -259,6 +273,10 @@ const api = {
   SETTINGS_FILE,
   DEFAULT_FILLERS,
   DEFAULT_SETTINGS,
+  STT_PROVIDERS,
+  LOCAL_WHISPER_DEFAULT_URL,
+  LOCAL_WHISPER_DEFAULT_MODEL,
+  isWhisperLike,
   normalizeSettings,
   createSettingsStore,
   createPluginFileStore,

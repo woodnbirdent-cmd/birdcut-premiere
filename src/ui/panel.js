@@ -19,6 +19,7 @@ const trimTools = load("trim", "BirdCutTrim", "../core/trim-tools");
 const settingsApi = load("settings", "BirdCutSettings", "../core/settings");
 const undoApi = load("undo", "BirdCutUndo", "../core/undo-stack");
 const stt = load("stt", "BirdCutStt", "../stt/transcribe");
+const whisperHttp = load("whisper", "BirdCutWhisper", "../stt/whisper-http");
 const applyCuts = load("apply", "BirdCutApply", "../premiere/apply-cuts");
 const modelErrors = load("errors", "BirdCutErrors", "../stt/errors");
 
@@ -69,7 +70,9 @@ function readSettingsFromForm(form) {
     padCutMs: valueOf("padCutMs"),
     includeSpeakerInCaptions: includeSpeaker ? Boolean(includeSpeaker.checked) : undefined,
     transcribeSource: valueOf("transcribeSource"),
-    audioPresetPath: valueOf("audioPresetPath")
+    audioPresetPath: valueOf("audioPresetPath"),
+    localWhisperBaseUrl: valueOf("localWhisperBaseUrl"),
+    localWhisperModel: valueOf("localWhisperModel")
   };
   Object.keys(data).forEach((key) => {
     if (data[key] === undefined) delete data[key];
@@ -102,6 +105,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     settings: settingsApi.normalizeSettings(settingsApi.DEFAULT_SETTINGS),
     hostStatus: { message: "Connecting…", sequenceName: "", available: false },
     adobeLanguages: [],
+    localWhisperHealth: null,
     cutPlan: null,
     message: "",
     messageTone: "info",
@@ -164,10 +168,28 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           state.adobeLanguages = [];
         }
       }
+      await pingLocalWhisper();
     } catch (err) {
       state.hostStatus = { available: false, message: err.message || String(err) };
     }
     render();
+  }
+
+  async function pingLocalWhisper() {
+    if (state.settings.sttProvider !== "local-whisper" || !whisperHttp.checkWhisperHealth) {
+      state.localWhisperHealth = null;
+      return;
+    }
+    try {
+      state.localWhisperHealth = await whisperHttp.checkWhisperHealth(state.settings.localWhisperBaseUrl);
+    } catch (_err) {
+      state.localWhisperHealth = {
+        ok: false,
+        message: whisperHttp.sidecarNotRunningMessage
+          ? whisperHttp.sidecarNotRunningMessage(state.settings.localWhisperBaseUrl)
+          : "Start Local Whisper sidecar"
+      };
+    }
   }
 
   async function transcribe(sourceOverride) {
@@ -181,8 +203,12 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       provider === "mock"
         ? "Loading demo transcript…"
         : provider === "adobe"
-          ? "Starting Adobe Speech to Text…"
-          : "Preparing audio…",
+          ? source === "import"
+            ? "Importing Premiere transcript…"
+            : "Starting Adobe Speech to Text…"
+          : provider === "local-whisper"
+            ? "Preparing audio for Local Whisper…"
+            : "Preparing audio…",
       "info"
     );
     render();
@@ -200,7 +226,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Adobe native or Whisper to transcribe the timeline.`,
+          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Local Whisper (on this Mac), Adobe native, or Whisper HTTP to transcribe the timeline.`,
           "ok"
         );
         return;
@@ -217,14 +243,25 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
+          source === "import"
+            ? `Imported ${transcript.words.length} words from Premiere transcript (${transcript.source && transcript.source.label ? transcript.source.label : "clip"}).`
+            : `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
           "ok"
         );
         return;
       }
 
-      if (!settingsStore.getApiKey()) {
+      if (provider === "local-whisper") {
+        await pingLocalWhisper();
+        if (state.localWhisperHealth && !state.localWhisperHealth.ok) {
+          throw new Error(state.localWhisperHealth.message || "Start Local Whisper sidecar");
+        }
+      } else if (provider === "whisper" && !settingsStore.getApiKey()) {
         throw new Error("Missing STT API key. Set it in Settings or BIRDCUT_STT_API_KEY.");
+      }
+
+      if (provider !== "whisper" && provider !== "local-whisper") {
+        throw new Error(`Unknown STT provider: ${provider}`);
       }
 
       let input = null;
@@ -274,8 +311,12 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       const explained =
         modelErrors.explainSttError &&
         modelErrors.explainSttError(err, {
-          baseUrl: state.settings.whisperBaseUrl,
-          source
+          baseUrl:
+            provider === "local-whisper"
+              ? state.settings.localWhisperBaseUrl
+              : state.settings.whisperBaseUrl,
+          source,
+          provider
         });
       setMessage(explained || err.message || String(err), "error");
     } finally {
@@ -610,36 +651,57 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         <label>STT provider
           <select name="sttProvider">
             <option value="mock"${s.sttProvider === "mock" ? " selected" : ""}>Mock / demo transcript (ignores timeline)</option>
+            <option value="local-whisper"${s.sttProvider === "local-whisper" ? " selected" : ""}>Local Whisper (on this Mac)</option>
             <option value="adobe"${s.sttProvider === "adobe" ? " selected" : ""}>Adobe Premiere Speech to Text / native</option>
             <option value="whisper"${s.sttProvider === "whisper" ? " selected" : ""}>OpenAI Whisper-compatible HTTP</option>
           </select>
         </label>
         ${
           s.sttProvider === "adobe"
-            ? `<p class="muted">Uses Premiere’s Speech to Text on each source clip. No OpenAI key. On-device packs (when installed) stay local; Adobe cloud languages may still use Adobe credits. ${
+            ? `<p class="muted">Uses Premiere’s Speech to Text on each source clip. No OpenAI key. Prefer selecting a ClipProjectItem in the Project panel (not a nested sequence). If Premiere already transcribed the clip (Window → Text), use <strong>Import Premiere transcript</strong> — that only runs exportToJSON. On-device packs stay local; Adobe cloud languages may still use Adobe credits. <strong>Optional / often broken on Premiere 26.5 Mac</strong> (error -1609629681 even with SpeechESL) — use Local Whisper instead. ${
                 packNote ? `Available: ${escapeHtml(packNote)}.` : "Install language packs in Premiere: Window → Text."
               }</p>`
             : ""
         }
-        <label>Whisper base URL
-          <input name="whisperBaseUrl" value="${escapeHtml(s.whisperBaseUrl)}" />
-        </label>
-        <label>Whisper model
-          <input name="whisperModel" value="${escapeHtml(s.whisperModel)}" />
-        </label>
+        ${
+          s.sttProvider === "local-whisper"
+            ? `<p class="muted">Bounces the sequence/clip with your audio-only .epr, then sends it to a Whisper sidecar on this Mac. No API key. Default URL <code>http://127.0.0.1:8090/v1</code>.</p>
+               <p class="${state.localWhisperHealth && state.localWhisperHealth.ok ? "muted" : "muted"}">${
+                 state.localWhisperHealth && state.localWhisperHealth.ok
+                   ? escapeHtml(state.localWhisperHealth.message)
+                   : "Start Local Whisper sidecar — Terminal: <code>cd sidecar/local-whisper && ./start.sh</code>"
+               }</p>
+               <label>Local Whisper URL
+                 <input name="localWhisperBaseUrl" value="${escapeHtml(s.localWhisperBaseUrl || "http://127.0.0.1:8090/v1")}" />
+               </label>
+               <label>Local Whisper model (tiny, base, small, medium, large-v3)
+                 <input name="localWhisperModel" value="${escapeHtml(s.localWhisperModel || "base")}" />
+               </label>`
+            : ""
+        }
+        ${
+          s.sttProvider === "whisper"
+            ? `<label>Whisper base URL
+            <input name="whisperBaseUrl" value="${escapeHtml(s.whisperBaseUrl)}" />
+          </label>
+          <label>Whisper model
+            <input name="whisperModel" value="${escapeHtml(s.whisperModel)}" />
+          </label>
+          <label>API key (Whisper HTTP only — stored locally, never hardcoded)
+            <input name="apiKey" type="password" placeholder="${escapeHtml(s.hasApiKey ? s.apiKeyPreview : "Paste key — or set BIRDCUT_STT_API_KEY")}" />
+          </label>`
+            : ""
+        }
         <label>Transcribe target
           <select name="transcribeSource">
             <option value="sequence"${s.transcribeSource !== "clip" ? " selected" : ""}>Active sequence</option>
             <option value="clip"${s.transcribeSource === "clip" ? " selected" : ""}>Selected clip(s)</option>
           </select>
         </label>
-        <label>Audio-only .epr preset (optional, Whisper bounce)
+        <label>Audio-only .epr preset (Whisper / Local Whisper bounce)
           <input name="audioPresetPath" value="${escapeHtml(s.audioPresetPath)}" placeholder="Path to MP3 or WAV preset" />
         </label>
         <button type="button" class="btn" id="btn-pick-preset">Choose .epr…</button>
-        <label>API key (Whisper only — stored locally, never hardcoded)
-          <input name="apiKey" type="password" placeholder="${escapeHtml(s.hasApiKey ? s.apiKeyPreview : "Paste key — or set BIRDCUT_STT_API_KEY")}" />
-        </label>
         <label>Filler words (comma or newline)
           <textarea name="fillerList">${escapeHtml(s.fillerList.join("\n"))}</textarea>
         </label>
@@ -680,18 +742,28 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
             <span class="logo" aria-hidden="true"></span>
             <div>
               <h1>BirdCut</h1>
-              <p class="sub">${escapeHtml(state.hostStatus.message || "Ready")}</p>
+              <p class="sub">${escapeHtml(
+                state.settings.sttProvider === "local-whisper" && state.localWhisperHealth && !state.localWhisperHealth.ok
+                  ? "Start Local Whisper sidecar"
+                  : state.hostStatus.message || "Ready"
+              )}${
+                state.settings.sttProvider === "local-whisper" && state.localWhisperHealth && state.localWhisperHealth.ok
+                  ? ` · ${escapeHtml(state.localWhisperHealth.message)}`
+                  : ""
+              }</p>
             </div>
           </div>
           <div class="top-actions">
             ${
-              state.settings.sttProvider === "whisper" || state.settings.sttProvider === "adobe"
+              state.settings.sttProvider === "whisper" ||
+              state.settings.sttProvider === "local-whisper" ||
+              state.settings.sttProvider === "adobe"
                 ? `<button type="button" class="btn primary" id="btn-transcribe-sequence"${state.busy ? " disabled" : ""}>Transcribe sequence</button>
                    <button type="button" class="btn" id="btn-transcribe-clip"${state.busy ? " disabled" : ""}>Clip</button>
                    ${
-                     state.settings.sttProvider === "whisper"
+                     state.settings.sttProvider === "whisper" || state.settings.sttProvider === "local-whisper"
                        ? `<button type="button" class="btn" id="btn-transcribe-file"${state.busy ? " disabled" : ""}>Pick file</button>`
-                       : ""
+                       : `<button type="button" class="btn" id="btn-import-premiere"${state.busy ? " disabled" : ""}>Import Premiere transcript</button>`
                    }`
                 : `<button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>`
             }
@@ -745,6 +817,8 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     if (transcribeSeq) transcribeSeq.addEventListener("click", () => transcribe("sequence"));
     const transcribeClip = root.querySelector("#btn-transcribe-clip");
     if (transcribeClip) transcribeClip.addEventListener("click", () => transcribe("clip"));
+    const importPremiere = root.querySelector("#btn-import-premiere");
+    if (importPremiere) importPremiere.addEventListener("click", () => transcribe("import"));
     const transcribeFile = root.querySelector("#btn-transcribe-file");
     if (transcribeFile) transcribeFile.addEventListener("click", () => transcribe("file"));
     const pickPreset = root.querySelector("#btn-pick-preset");
@@ -830,6 +904,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         const providerChanged = state.settings.sttProvider !== prevProvider;
         const sizeChanged = state.settings.textSize !== prevSize;
         if (providerChanged) setMessage("STT provider saved.", "ok");
+        if (providerChanged) await pingLocalWhisper();
         if (providerChanged || sizeChanged) render();
       };
       form.addEventListener("change", (event) => {

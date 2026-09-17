@@ -59,7 +59,7 @@ function wordsFromSegments(segments) {
   return words;
 }
 
-function mapWhisperResponse(payload, sourceLabel) {
+function mapWhisperResponse(payload, sourceLabel, options) {
   const body = payload && typeof payload === "object" ? payload : {};
   let words = [];
   if (Array.isArray(body.words) && body.words.length) {
@@ -96,13 +96,54 @@ function mapWhisperResponse(payload, sourceLabel) {
       : [];
 
   return model.normalizeTranscript({
-    source: { kind: "whisper", label: sourceLabel || "Whisper" },
+    source: {
+      kind: (options && options.sourceKind) || "whisper",
+      label: sourceLabel || ((options && options.sourceKind) === "local-whisper" ? "Local Whisper" : "Whisper")
+    },
     language: body.language || "en",
     durationMs: body.durationMs != null ? body.durationMs : time.secondsToMs(body.duration),
     words,
     speakers,
     chapters
   });
+}
+
+function healthRoot(baseUrl) {
+  const trimmed = String(baseUrl || "http://127.0.0.1:8090/v1").replace(/\/+$/, "");
+  return trimmed.replace(/\/v1$/i, "") || "http://127.0.0.1:8090";
+}
+
+function sidecarNotRunningMessage(baseUrl) {
+  const root = healthRoot(baseUrl);
+  return `Local Whisper sidecar is not running at ${root}. Start it in Terminal: cd sidecar/local-whisper && ./start.sh  (or python3 server.py). Then Transcribe sequence in BirdCut.`;
+}
+
+async function checkWhisperHealth(baseUrl, fetchImpl) {
+  const fetchFn = fetchImpl || (typeof fetch === "function" ? fetch : null);
+  const root = healthRoot(baseUrl);
+  if (!fetchFn) {
+    return { ok: false, root, message: sidecarNotRunningMessage(baseUrl) };
+  }
+  try {
+    const response = await fetchFn(`${root}/health`, { method: "GET" });
+    if (!response.ok) {
+      return { ok: false, root, message: sidecarNotRunningMessage(baseUrl) };
+    }
+    const body = await response.json().catch(() => ({}));
+    const modelName = body.model || "";
+    const engine = body.engine || "faster-whisper";
+    return {
+      ok: true,
+      root,
+      model: modelName,
+      engine,
+      message: modelName
+        ? `Local Whisper sidecar is running (${engine} ${modelName}).`
+        : "Local Whisper sidecar is running."
+    };
+  } catch (_err) {
+    return { ok: false, root, message: sidecarNotRunningMessage(baseUrl) };
+  }
 }
 
 async function transcribeWithWhisper({
@@ -113,9 +154,13 @@ async function transcribeWithWhisper({
   baseUrl,
   modelName,
   language,
-  fetchImpl
+  fetchImpl,
+  requireApiKey,
+  sourceKind,
+  sourceLabel
 }) {
-  if (!apiKey) {
+  const needsKey = requireApiKey !== false;
+  if (needsKey && !apiKey) {
     throw new Error("Missing STT API key. Set it in Settings or BIRDCUT_STT_API_KEY.");
   }
   const fetchFn = fetchImpl || (typeof fetch === "function" ? fetch : null);
@@ -123,7 +168,8 @@ async function transcribeWithWhisper({
     throw new Error("No fetch implementation available for Whisper HTTP.");
   }
 
-  const url = `${String(baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "")}/audio/transcriptions`;
+  const rootBase = String(baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const url = `${rootBase}/audio/transcriptions`;
   const form = new FormData();
   const blob =
     typeof Blob === "function"
@@ -139,17 +185,29 @@ async function transcribeWithWhisper({
   form.append("timestamp_granularities[]", "word");
   if (language) form.append("language", language);
 
-  const response = await fetchFn(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: form
-  });
+  const headers = {};
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  let response;
+  try {
+    response = await fetchFn(url, {
+      method: "POST",
+      headers,
+      body: form
+    });
+  } catch (err) {
+    if (!needsKey) {
+      throw new Error(sidecarNotRunningMessage(rootBase));
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     const snippet = detail.slice(0, 280);
+    if (!needsKey && (response.status === 404 || response.status >= 500)) {
+      throw new Error(sidecarNotRunningMessage(rootBase));
+    }
     if (response.status === 401) {
       throw new Error(`Whisper HTTP 401 unauthorized. ${snippet}`);
     }
@@ -159,10 +217,19 @@ async function transcribeWithWhisper({
     throw new Error(`Whisper HTTP ${response.status}: ${snippet}`);
   }
   const payload = await response.json();
-  return mapWhisperResponse(payload, fileName || "Whisper");
+  return mapWhisperResponse(payload, sourceLabel || fileName || "Whisper", {
+    sourceKind: sourceKind || "whisper"
+  });
 }
 
-const api = { mapWhisperResponse, transcribeWithWhisper, wordsFromSegments };
+const api = {
+  mapWhisperResponse,
+  transcribeWithWhisper,
+  wordsFromSegments,
+  checkWhisperHealth,
+  healthRoot,
+  sidecarNotRunningMessage
+};
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = api;
