@@ -35,7 +35,10 @@ function explainSttError(err, context) {
     return PREMIERE_UNKNOWN_STT_MESSAGE;
   }
   if (/missing stt api key/i.test(raw) || (/api key/i.test(raw) && /missing|set it/i.test(raw))) {
-    return "No Whisper API key. Settings → STT provider: Whisper → paste the key → Save. For Adobe Speech to Text, switch the provider to Adobe native (no OpenAI key).";
+    return "No Whisper API key. Settings → STT provider: Whisper → paste the key → Save. Or switch to Local Whisper (on this Mac) — no OpenAI key. Adobe Speech to Text is optional and broken on some Premiere 26.5 installs.";
+  }
+  if (/local whisper sidecar is not running/i.test(raw) || /start local whisper sidecar/i.test(raw)) {
+    return raw;
   }
   if (/401|unauthorized/i.test(raw)) {
     return "STT rejected the API key (HTTP 401). Check the key in Settings. It is stored locally, never in the repo.";
@@ -46,7 +49,10 @@ function explainSttError(err, context) {
   if (/permission denied to the url/i.test(raw)) {
     return `Premiere blocked ${baseUrl}. Add that origin to manifest.json requiredPermissions.network.domains (or keep "all") and Unload/Load the plugin.`;
   }
-  if (/network request failed|failed to fetch|load failed/i.test(raw)) {
+  if (/network request failed|failed to fetch|load failed|econnrefused/i.test(raw)) {
+    if ((context && context.provider) === "local-whisper") {
+      return `Local Whisper sidecar is not running at ${baseUrl}. Start it in Terminal: cd sidecar/local-whisper && ./start.sh  (or python3 server.py). Then Transcribe sequence.`;
+    }
     return `Could not reach ${baseUrl}. Check the Whisper base URL, network/VPN, and that the server is running.`;
   }
   if (/empty audio|too small|0 bytes/i.test(raw)) {

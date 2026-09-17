@@ -90,6 +90,11 @@ describe("settings", () => {
   it("normalizes whisper vs unknown providers", () => {
     assert.equal(settings.normalizeSettings({ sttProvider: "whisper" }).sttProvider, "whisper");
     assert.equal(settings.normalizeSettings({ sttProvider: "adobe" }).sttProvider, "adobe");
+    assert.equal(settings.normalizeSettings({ sttProvider: "local-whisper" }).sttProvider, "local-whisper");
+    assert.equal(
+      settings.normalizeSettings({ sttProvider: "local-whisper" }).localWhisperBaseUrl,
+      "http://127.0.0.1:8090/v1"
+    );
     assert.equal(settings.normalizeSettings({ sttProvider: "demo" }).sttProvider, "mock");
     assert.equal(settings.normalizeSettings({}).sttProvider, "mock");
   });

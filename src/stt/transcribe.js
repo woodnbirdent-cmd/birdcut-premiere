@@ -109,35 +109,49 @@ async function transcribeAudio(input, settings, deps) {
     );
   }
 
-  if (provider !== "whisper") {
-    throw new Error(`Unknown STT provider: ${provider}`);
+  if (provider === "whisper" || provider === "local-whisper") {
+    if (!input || !input.audioBytes) {
+      throw new Error(
+        provider === "local-whisper"
+          ? "Local Whisper needs audio from the sequence, a selected clip, or a picked WAV/MP3/M4A."
+          : "Whisper provider needs audio from the sequence, a selected clip, or a picked WAV/MP3/M4A."
+      );
+    }
+
+    const isLocal = provider === "local-whisper";
+    emit(
+      onProgress,
+      "uploading",
+      isLocal ? "Sending audio to Local Whisper…" : "Uploading audio to Whisper…"
+    );
+    let result = await whisper.transcribeWithWhisper({
+      audioBytes: input.audioBytes,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      apiKey: isLocal ? "" : deps && deps.apiKey,
+      requireApiKey: !isLocal,
+      baseUrl: isLocal
+        ? settings.localWhisperBaseUrl || "http://127.0.0.1:8090/v1"
+        : settings.whisperBaseUrl,
+      modelName: isLocal ? settings.localWhisperModel || "base" : settings.whisperModel,
+      language: settings.language,
+      fetchImpl: deps && deps.fetchImpl,
+      sourceKind: "whisper",
+      sourceLabel: isLocal ? "Local Whisper" : undefined
+    });
+
+    emit(onProgress, "mapping", "Mapping word timings onto the sequence…");
+    if (align.applyAlignment && input.alignment) {
+      result = align.applyAlignment(result, input.alignment);
+    }
+
+    return model.annotateFillers(
+      model.insertSilenceMarkers(result, { minGapMs: settings.silenceThresholdMs }),
+      settings.fillerList
+    );
   }
 
-  if (!input || !input.audioBytes) {
-    throw new Error("Whisper provider needs audio from the sequence, a selected clip, or a picked WAV/MP3/M4A.");
-  }
-
-  emit(onProgress, "uploading", "Uploading audio to Whisper…");
-  let result = await whisper.transcribeWithWhisper({
-    audioBytes: input.audioBytes,
-    fileName: input.fileName,
-    mimeType: input.mimeType,
-    apiKey: deps && deps.apiKey,
-    baseUrl: settings.whisperBaseUrl,
-    modelName: settings.whisperModel,
-    language: settings.language,
-    fetchImpl: deps && deps.fetchImpl
-  });
-
-  emit(onProgress, "mapping", "Mapping word timings onto the sequence…");
-  if (align.applyAlignment && input.alignment) {
-    result = align.applyAlignment(result, input.alignment);
-  }
-
-  return model.annotateFillers(
-    model.insertSilenceMarkers(result, { minGapMs: settings.silenceThresholdMs }),
-    settings.fillerList
-  );
+  throw new Error(`Unknown STT provider: ${provider}`);
 }
 
 const api = { transcribeAudio };

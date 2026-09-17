@@ -33,4 +33,21 @@ describe("STT error copy", () => {
     assert.match(expected, /Project panel/);
     assert.match(expected, /import/i);
   });
+
+  it("explains a missing Local Whisper sidecar", () => {
+    assert.match(
+      explainSttError(new Error("Local Whisper sidecar is not running at http://127.0.0.1:8090. Start it in Terminal: cd sidecar/local-whisper && ./start.sh"), {
+        provider: "local-whisper",
+        baseUrl: "http://127.0.0.1:8090/v1"
+      }),
+      /sidecar\/local-whisper/i
+    );
+    assert.match(
+      explainSttError(new Error("Failed to fetch"), {
+        provider: "local-whisper",
+        baseUrl: "http://127.0.0.1:8090/v1"
+      }),
+      /Start it in Terminal/i
+    );
+  });
 });
