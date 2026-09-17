@@ -9,8 +9,8 @@ It is inspired by the *feature goals* of tools like Premiere Assistant-style tra
 - Adobe Premiere Pro **25.6 or later** (tested target: **Premiere Pro 26 on Mac**)
 - [UXP Developer Tool](https://developer.adobe.com/premiere-pro/uxp/plugins/) **2.2+**
 - Premiere **Developer Mode**: Settings → Plugins → Enable developer mode (restart Premiere)
-- For real transcription: a Whisper-compatible HTTP endpoint and API key (OpenAI or local drop-in)
-- For sequence bounce: an **audio-only Adobe Media Encoder preset** (`.epr`, MP3 preferred). See `docs/premiere-api-limits.md`.
+- For real transcription: **Adobe Premiere Speech to Text** (native, no OpenAI key) or a Whisper-compatible HTTP endpoint and API key
+- For Whisper sequence bounce only: an **audio-only Adobe Media Encoder preset** (`.epr`, MP3 preferred). See `docs/premiere-api-limits.md`. Adobe native STT does **not** need a bounce preset.
 
 Node 18+ is optional and only needed for `npm test` / the browser preview.
 
@@ -32,31 +32,46 @@ npm test          # cut planner, captions, STT alignment, trim drafts
 npm run preview   # browser demo of the panel UI (Premiere APIs mocked)
 ```
 
-## Transcribe a demo clip (Premiere 26 / Mac)
+## Transcribe with Adobe Speech to Text (Premiere 26 / Mac)
+
+This is the default paid-alternative path: **no OpenAI key**.
+
+1. Open your sequence.
+2. BirdCut **Settings** → **STT provider** → `Adobe Premiere Speech to Text / native` (saves immediately; top bar shows **Transcribe sequence** / **Clip**).
+3. Language: pick a Premiere pack if the list appears. Install packs in Premiere **Window → Text**. On-device packs stay local; **Adobe cloud languages may still use Adobe credits**.
+4. Click **Transcribe sequence** to run native STT on each source `ClipProjectItem` used on the timeline and merge word timings onto sequence time.
+5. Or select a clip and click **Clip** (`Transcript.transcribeClipProjectItem` → `exportToJSON`).
+6. Status bar: `transcribing in Premiere…` → `exporting transcript…` → `mapping words…`.
+
+Nested sequences cannot be transcribed directly. If a clip already has a Premiere transcript, BirdCut reuses it.
+
+Whisper HTTP remains available if you want an OpenAI-compatible endpoint instead.
+
+## Transcribe with Whisper (optional)
 
 Mock mode always loads `fixtures/sample-transcript.json` and **ignores** timeline media. That is intentional for offline UI demos.
 
-To transcribe **your** sequence or clip:
+To transcribe **your** sequence or clip with Whisper:
 
 1. Open the sequence that contains the demo clip.
 2. BirdCut **Settings**:
-   - **STT provider** → `OpenAI Whisper-compatible HTTP` (saves immediately; the top bar switches to **Transcribe sequence** / **Clip** without a separate Save)
+   - **STT provider** → `OpenAI Whisper-compatible HTTP` (saves immediately)
    - **Whisper base URL** → `https://api.openai.com/v1` (or your local server)
    - **API key** → paste the key → **Save settings** (stored in UXP secure storage / plugin data; never committed)
    - Optional: **Choose .epr…** and pick an MP3 or WAV audio-only preset (needed when BirdCut must bounce mixed timeline audio, or when the source file is larger than ~25 MB). This does not reset the provider.
 3. Click **Transcribe sequence** to bounce the **active sequence** mix, upload it, and load word timings aligned to sequence time.
 4. Or select the demo clip on the timeline and click **Clip**. BirdCut prefers `getMediaFilePath()` when that file is already on disk and small enough for Whisper; otherwise it bounces that clip/range.
-5. Watch the status bar: `exporting…` → `uploading…` → `mapping words…`. Errors name the fix (no key, missing preset, network blocked, empty audio).
+5. Watch the status bar: `exporting…` → `uploading…` → `mapping words…`.
 
-**Pick file** remains a fallback if bounce is unavailable.
+**Pick file** remains a Whisper fallback if bounce is unavailable.
 
 ## After pulling this branch (UXP Developer Tool)
 
 1. `git pull` (or check out the PR branch).
 2. In UDT, select BirdCut → **Unload** → **Load**. Do this even for JS/CSS-only pulls so Premiere 26 does not keep the previous panel.
 3. Open **Window → UXP Plugins → BirdCut**.
-4. Settings → Whisper (sticks immediately). Paste an API key → **Save settings**.
-5. Open your sequence → **Transcribe sequence**, or select the clip → **Clip**.
+4. Settings → **Adobe Premiere Speech to Text / native** (sticks immediately; no OpenAI key).
+5. Open your sequence → **Transcribe sequence**, or select a source clip → **Clip**.
 6. Confirm the Transcript and Settings panes scroll with the trackpad. If a pane still does not scroll, Unload → Load once more after this pull.
 
 ## First run (editing)

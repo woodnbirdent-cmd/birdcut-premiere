@@ -15,7 +15,8 @@ Sources: [Premiere UXP API](https://developer.adobe.com/premiere-pro/uxp/), [Seq
 | Move clip | `trackItem.createSetStartAction` | Sequence-relative pack after cuts. |
 | Duplicate clip | `SequenceEditor.createCloneTrackItemAction` | Offset-based. Used to reconstruct a clip after a middle hole. `isInsert=true` has reported audio-collapse bugs; BirdCut uses overwrite (`false`). |
 | Ripple remove | `SequenceEditor.createRemoveItemsAction(selection, ripple, mediaType)` | Requires a `TrackItemSelection`. |
-| Source path | `ClipProjectItem.getMediaFilePath()` | First choice for **Transcribe clip** when the media is a file on disk. |
+| Source path | `ClipProjectItem.getMediaFilePath()` | First choice for Whisper **Transcribe clip** when the media is a file on disk. |
+| Native STT | `Transcript.transcribeClipProjectItem`, `exportToJSON`, `hasTranscript`, `querySupportedLanguages` | Adobe Speech to Text is **per source clip**, not per sequence mix. JSON spec: [transcript_format_spec.json](https://github.com/AdobeDocs/uxp-premiere-pro-samples/blob/main/sample-panels/premiere-api/assets/transcript_format_spec.json). Nested sequences cannot be transcribed directly. |
 | Sequence bounce | `EncoderManager.exportSequence(sequence, ExportType.IMMEDIATELY, output, preset.epr, exportFull)` | Verified against Premiere UXP 25.6+/26 docs. Needs an audio-only `.epr`. Writes to the plugin temp folder. |
 | Clip bounce | `encodeFile` / `encodeProjectItem` | Used when the source file is missing, too large for Whisper (~25 MB), or not a sendable format. AME is typical. |
 | Encoder events | `EventManager.addEventListener(manager, EncoderManager.EVENT_RENDER_COMPLETE)` | Wait for bounce if IMMEDIATELY is not fully blocking. |
@@ -42,6 +43,7 @@ BirdCut also searches common Premiere/AME **26/25** `MediaIO/systempresets` fold
 Typical Mac locations:
 
 - `/Applications/Adobe Premiere Pro 2026/Adobe Premiere Pro 2026.app/Contents/MediaIO/systempresets/`
+- `/Volumes/WNB Apps/Applications/Adobe Premiere Pro 2026/.../MediaIO/systempresets/` (external-apps volume)
 - `~/Documents/Adobe/Adobe Media Encoder/26.0/Presets/`
 
 ### Alignment

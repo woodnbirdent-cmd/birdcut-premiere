@@ -63,8 +63,15 @@ async function bootPreview() {
         "Preview cannot bounce Premiere audio. Load BirdCut in Premiere 26, or use Mock / demo transcript."
       );
     },
-    async pickPresetFile() {
-      return null;
+    async transcribeAdobe() {
+      throw new Error(
+        "Preview cannot run Adobe Speech to Text. Load BirdCut in Premiere 26 and set STT provider to Adobe native."
+      );
+    },
+    async queryAdobeLanguages() {
+      return [
+        { displayString: "English (US)", languageCode: "en-US", locale: "en-us", packAvailable: true }
+      ];
     },
     async saveTextFile(_name, contents) {
       try {

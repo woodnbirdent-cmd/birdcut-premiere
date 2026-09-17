@@ -30,7 +30,19 @@ function loadBounce() {
   return globalThis.BirdCutBounce || {};
 }
 
+function loadAdobeStt() {
+  if (typeof require === "function") {
+    try {
+      return require("./adobe-stt");
+    } catch (_err) {
+      /* fall through */
+    }
+  }
+  return globalThis.BirdCutAdobeStt || {};
+}
+
 const bounce = loadBounce();
+const adobeSttApi = loadAdobeStt();
 
 function createUnavailableHost() {
   return {
@@ -59,6 +71,12 @@ function createUnavailableHost() {
     },
     async captureAudio() {
       throw new Error("Premiere is not available. Use mock mode, or load BirdCut inside Premiere to transcribe a sequence.");
+    },
+    async transcribeAdobe() {
+      throw new Error("Adobe Speech to Text needs Premiere Pro. Load BirdCut inside Premiere 26.");
+    },
+    async queryAdobeLanguages() {
+      return [];
     },
     async pickPresetFile() {
       return null;
@@ -141,6 +159,9 @@ function createPremiereHost(overrides) {
 
   const capture = bounce.createAudioCapture
     ? bounce.createAudioCapture({ ppro, uxp, tickToMs, call })
+    : null;
+  const adobe = adobeSttApi.createAdobeStt
+    ? adobeSttApi.createAdobeStt({ ppro, call, tickToMs })
     : null;
 
   async function collectMediaPaths(items) {
@@ -243,6 +264,17 @@ function createPremiereHost(overrides) {
         throw new Error("Audio capture is not available in this Premiere build.");
       }
       return capture.captureAudio(options);
+    },
+    async queryAdobeLanguages() {
+      return adobe && typeof adobe.queryLanguages === "function" ? adobe.queryLanguages() : [];
+    },
+    async transcribeAdobe(options) {
+      if (!adobe || typeof adobe.captureAdobe !== "function") {
+        throw new Error(
+          "Adobe Speech to Text is not available in this Premiere build. BirdCut needs Premiere 25.6+ Transcript APIs."
+        );
+      }
+      return adobe.captureAdobe(options);
     },
     async saveTextFile(defaultName, contents, types) {
       const fs = uxp && uxp.storage && uxp.storage.localFileSystem;

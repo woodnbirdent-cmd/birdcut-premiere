@@ -318,4 +318,55 @@ describe("panel controller", () => {
     assert.equal(controller.getState().settings.sttProvider, "whisper");
     assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).sttProvider, "whisper");
   });
+
+  it("Adobe native transcribes without an OpenAI key", async () => {
+    const adobe = require("../fixtures/adobe-transcript.json");
+    const { mapAdobeTranscript } = require("../src/stt/adobe-json");
+    const stages = [];
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const root = fakeRoot();
+    const controller = createPanelController({
+      root,
+      host: {
+        available: true,
+        async getStatus() {
+          return { available: true, message: "Seq", sequenceName: "Seq" };
+        },
+        async getSequenceSnapshot() {
+          return { items: [] };
+        },
+        async queryAdobeLanguages() {
+          return [{ displayString: "English (US)", languageCode: "en-US", locale: "en-us", packAvailable: true }];
+        },
+        async transcribeAdobe({ onProgress }) {
+          onProgress({ stage: "transcribing", message: "Transcribing in Premiere…" });
+          onProgress({ stage: "exporting", message: "Exporting transcript…" });
+          onProgress({ stage: "mapping", message: "Mapping words…" });
+          stages.push("ran");
+          return mapAdobeTranscript(adobe, { label: "Take 1" });
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.saveSettings({ sttProvider: "adobe" });
+    assert.match(root.innerHTML, /Transcribe sequence/);
+    await controller.transcribe("clip");
+    assert.deepEqual(stages, ["ran"]);
+    const spoken = controller.getState().transcript.words.filter((word) => !word.isSilence);
+    assert.equal(spoken[0].text, "Hello");
+    assert.match(controller.getState().message, /Adobe Speech to Text/i);
+  });
 });

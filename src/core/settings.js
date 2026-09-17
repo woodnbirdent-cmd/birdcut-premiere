@@ -50,7 +50,8 @@ function normalizeSettings(raw) {
         .filter(Boolean);
   return {
     language: input.language || DEFAULT_SETTINGS.language,
-    sttProvider: input.sttProvider === "whisper" ? "whisper" : "mock",
+    sttProvider:
+      input.sttProvider === "whisper" || input.sttProvider === "adobe" ? input.sttProvider : "mock",
     whisperBaseUrl: String(input.whisperBaseUrl || DEFAULT_SETTINGS.whisperBaseUrl).replace(/\/+$/, ""),
     whisperModel: input.whisperModel || DEFAULT_SETTINGS.whisperModel,
     fillerList: fillerList.length ? fillerList : DEFAULT_FILLERS.slice(),

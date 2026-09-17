@@ -7,8 +7,8 @@ Core modules are CommonJS for Node tests and UXP `require()`, wrapped in an IIFE
 index.html / index.js          UXP entry (panels.birdcut.show)
 src/ui/panel.js                Dark compact UI: Transcript, Trim, Captions, Settings
 src/core/                      Transcript model, undo, cut planner, captions, trim drafts, settings
-src/stt/                       Mock fixture + Whisper HTTP + bounce timing alignment
-src/premiere/                  Sequence snapshot, audio capture/bounce, apply via premierepro
+src/stt/                       Mock fixture + Adobe native JSON map + Whisper HTTP + bounce timing alignment
+src/premiere/                  Sequence snapshot, Adobe STT, audio capture/bounce, apply via premierepro
 fixtures/sample-transcript.json
 tests/                         node --test
 ```
@@ -18,7 +18,7 @@ tests/                         node --test
 ```json
 {
   "version": 1,
-  "source": { "kind": "mock|whisper|json", "label": "…" },
+  "source": { "kind": "mock|adobe|whisper|json", "label": "…" },
   "language": "en",
   "durationMs": 92000,
   "words": [
@@ -49,6 +49,7 @@ Cut-planning is the source of truth and is unit-tested. Premiere apply is best-e
 | Provider | Behavior |
 | --- | --- |
 | `mock` | Loads `fixtures/sample-transcript.json`. Ignores timeline media (offline demo). |
+| `adobe` | Premiere native Speech to Text: `Transcript.transcribeClipProjectItem` on each source `ClipProjectItem`, then `exportToJSON`. JSON follows Adobe’s published spec (`language` + `segments[].words[]` with seconds). Word times map onto the timeline via clip start / in / out. **No OpenAI key.** Cloud languages may still use Adobe credits; on-device packs do not. |
 | `whisper` | Captures **active sequence** (`exportSequence` + audio `.epr`) or **selected clip** (`getMediaFilePath()` when possible, else encode/bounce), then `POST {baseUrl}/audio/transcriptions` with word timestamps. Times are mapped onto sequence time (`src/stt/align-transcript.js`). |
 
 API keys are read from Settings (UXP `secureStorage` when present, else plugin `localStorage`) or `BIRDCUT_STT_API_KEY` for Node. They are never hardcoded and are omitted from the public settings snapshot.
