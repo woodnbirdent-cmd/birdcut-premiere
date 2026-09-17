@@ -1,11 +1,28 @@
 "use strict";
 (function (root) {
+const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_POLL_MS = 1500;
+const HEARTBEAT_MS = 2000;
+const PACKS_CREDITS_MESSAGE =
+  "Adobe Speech to Text returned false (no transcript started). Install an on-device language pack in Premiere (Window → Text), or check Adobe cloud credits.";
+const NESTED_SEQUENCE_MESSAGE =
+  "The selected item is a nested sequence. Adobe Speech to Text cannot transcribe sequences. Select a source clip in the Project panel (a ClipProjectItem that is not a sequence).";
+const SELECT_CLIP_MESSAGE =
+  "Select a source clip in the Project panel (preferred) or on the timeline, then Transcribe clip / Import Premiere transcript. Nested sequences cannot be transcribed.";
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function progress(onProgress, stage, message) {
   if (typeof onProgress === "function") onProgress({ stage, message });
+}
+
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(Number(ms) / 1000) || 0);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function loadJson() {
@@ -41,23 +58,51 @@ function loadAlign() {
   return globalThis.BirdCutAlign || {};
 }
 
+function loadErrors() {
+  if (typeof require === "function") {
+    try {
+      return require("../stt/errors");
+    } catch (_err) {
+      /* fall through */
+    }
+  }
+  return globalThis.BirdCutErrors || {};
+}
+
 const adobeJson = loadJson();
 const adobeLang = loadLang();
 const align = loadAlign();
+const errors = loadErrors();
 
-async function asClipProjectItem(ppro, projectItem) {
-  if (!projectItem) return null;
+function throwIfUnknown(err) {
+  if (errors.isPremiereUnknownSttError && errors.isPremiereUnknownSttError(err)) {
+    throw new Error(
+      errors.PREMIERE_UNKNOWN_STT_MESSAGE ||
+        "Premiere Speech to Text failed (error -1609629681). Install an on-device language pack in Window → Text, select the source clip in the Project panel, or transcribe once in Premiere’s Text panel and run BirdCut Clip to import."
+    );
+  }
+}
+
+async function inspectClipProjectItem(ppro, projectItem) {
+  if (!projectItem) return { clipItem: null, nested: false };
   const clipItem =
     ppro.ClipProjectItem && typeof ppro.ClipProjectItem.cast === "function"
       ? ppro.ClipProjectItem.cast(projectItem)
       : projectItem;
-  if (!clipItem) return null;
+  if (!clipItem) return { clipItem: null, nested: false };
+  let nested = false;
   try {
-    if (typeof clipItem.isSequence === "function" && (await clipItem.isSequence())) return null;
+    if (typeof clipItem.isSequence === "function" && (await clipItem.isSequence())) nested = true;
   } catch (_err) {
-    /* not a sequence, or API missing */
+    nested = false;
   }
-  return clipItem;
+  return { clipItem, nested };
+}
+
+async function asClipProjectItem(ppro, projectItem) {
+  const inspected = await inspectClipProjectItem(ppro, projectItem);
+  if (!inspected.clipItem || inspected.nested) return null;
+  return inspected.clipItem;
 }
 
 function transcriptApi(ppro) {
@@ -74,63 +119,164 @@ function looksPopulated(parsed) {
   return parsed && Array.isArray(parsed.segments) && parsed.segments.length > 0;
 }
 
-async function exportReadyJson(T, clipItem, { timeoutMs, onProgress, name }) {
-  const deadline = Date.now() + (timeoutMs || 10 * 60 * 1000);
+function clipHasTranscript(T, clipItem) {
+  if (!T || typeof T.hasTranscript !== "function") return null;
+  try {
+    return Boolean(T.hasTranscript(clipItem));
+  } catch (_err) {
+    return null;
+  }
+}
+
+async function awaitWithHeartbeat(work, { onProgress, name, stage, prefix }) {
+  const started = Date.now();
+  let settled = null;
+  const pending = Promise.resolve(work).then(
+    (value) => {
+      settled = { ok: true, value };
+    },
+    (err) => {
+      settled = { ok: false, err };
+    }
+  );
+  while (!settled) {
+    const elapsed = formatElapsed(Date.now() - started);
+    progress(
+      onProgress,
+      stage || "transcribing",
+      `${prefix || "Transcribing in Premiere…"} ${elapsed} elapsed (${name || "clip"}). Large clips can take several minutes.`
+    );
+    await Promise.race([pending, sleep(HEARTBEAT_MS)]);
+  }
+  await pending;
+  if (!settled.ok) throw settled.err;
+  return settled.value;
+}
+
+function invokeTranscribe(T, clipItem, languageCode) {
+  if (languageCode) return T.transcribeClipProjectItem(clipItem, { language: languageCode });
+  return T.transcribeClipProjectItem(clipItem);
+}
+
+async function exportReadyJson(T, clipItem, { timeoutMs, onProgress, name, pollMs, importOnly } = {}) {
+  const limit = timeoutMs || DEFAULT_TIMEOUT_MS;
+  const interval = pollMs || DEFAULT_POLL_MS;
+  const deadline = Date.now() + limit;
+  const started = Date.now();
   let lastErr = null;
+  const label = name || "clip";
   while (Date.now() < deadline) {
+    const elapsed = formatElapsed(Date.now() - started);
+    const known = clipHasTranscript(T, clipItem);
     try {
-      if (typeof T.hasTranscript === "function" && !T.hasTranscript(clipItem)) {
-        progress(onProgress, "transcribing", `Transcribing in Premiere… (${name || "clip"})`);
-        await sleep(800);
+      if (known === false) {
+        if (importOnly) {
+          throw new Error(
+            `No Premiere transcript on ${label}. Transcribe once in Premiere’s Text panel, then run BirdCut Import Premiere transcript.`
+          );
+        }
+        progress(
+          onProgress,
+          "transcribing",
+          `Waiting for Premiere Speech to Text… ${elapsed} elapsed (${label}). Still running — this is not stuck.`
+        );
+        await sleep(interval);
         continue;
       }
-      progress(onProgress, "exporting", `Exporting transcript… (${name || "clip"})`);
+      progress(onProgress, "exporting", `Exporting transcript… ${elapsed} elapsed (${label})`);
       const raw = await T.exportToJSON(clipItem);
       const parsed = adobeJson.parseAdobeJson(raw);
       if (looksPopulated(parsed)) return parsed;
       lastErr = new Error("exportToJSON returned no segments yet");
     } catch (err) {
+      throwIfUnknown(err);
+      if (importOnly && /no premiere transcript/i.test((err && err.message) || "")) throw err;
       lastErr = err;
     }
-    await sleep(800);
+    await sleep(interval);
   }
+  const waited = formatElapsed(limit);
   throw new Error(
     (lastErr && lastErr.message) ||
-      `Timed out waiting for Adobe Speech to Text on ${name || "the clip"}. Check Window → Text in Premiere.`
+      `Timed out after ${waited} waiting for Adobe Speech to Text on ${label}. Premiere may still be transcribing — open Window → Text, or Import Premiere transcript after it finishes.`
   );
 }
 
-async function transcribeOne(T, clipItem, { languageCode, onProgress, name, timeoutMs }) {
+async function transcribeOne(T, clipItem, { languageCode, onProgress, name, timeoutMs, pollMs, importOnly } = {}) {
   const label = name || clipItem.name || "clip";
-  const already = typeof T.hasTranscript === "function" && T.hasTranscript(clipItem);
-  if (already) {
+  const waitOpts = { timeoutMs, onProgress, name: label, pollMs, importOnly: Boolean(importOnly) };
+  const knownHas = clipHasTranscript(T, clipItem);
+
+  if (knownHas === true) {
     progress(onProgress, "exporting", `Using existing Premiere transcript (${label})…`);
-    return exportReadyJson(T, clipItem, { timeoutMs, onProgress, name: label });
+    return exportReadyJson(T, clipItem, waitOpts);
   }
+
+  if (knownHas == null && typeof T.exportToJSON === "function") {
+    try {
+      const raw = await T.exportToJSON(clipItem);
+      const parsed = adobeJson.parseAdobeJson(raw);
+      if (looksPopulated(parsed)) {
+        progress(onProgress, "exporting", `Using existing Premiere transcript (${label})…`);
+        return parsed;
+      }
+    } catch (err) {
+      if (importOnly) {
+        throwIfUnknown(err);
+      }
+    }
+  }
+
+  if (importOnly) {
+    throw new Error(
+      `No Premiere transcript on ${label}. Transcribe once in Premiere’s Text panel, then run BirdCut Import Premiere transcript.`
+    );
+  }
+
   if (typeof T.transcribeClipProjectItem !== "function") {
     throw new Error("Transcript.transcribeClipProjectItem is missing. Update Premiere Pro to 25.6 or later.");
   }
-  progress(onProgress, "transcribing", `Transcribing in Premiere… (${label})`);
+
+  const heartbeat = {
+    onProgress,
+    name: label,
+    stage: "transcribing",
+    prefix: "Transcribing in Premiere…"
+  };
+
   let ok = false;
+  let lastErr = null;
   try {
-    ok = languageCode
-      ? await T.transcribeClipProjectItem(clipItem, { language: languageCode })
-      : await T.transcribeClipProjectItem(clipItem);
+    progress(onProgress, "transcribing", `Transcribing in Premiere… 0:00 elapsed (${label}). Large clips can take several minutes.`);
+    ok = await awaitWithHeartbeat(invokeTranscribe(T, clipItem, languageCode), heartbeat);
   } catch (err) {
-    const msg = err && err.message ? err.message : String(err);
-    if (languageCode && /unsupported|language/i.test(msg)) {
-      progress(onProgress, "transcribing", "Language code not accepted — using Premiere’s default…");
-      ok = await T.transcribeClipProjectItem(clipItem);
-    } else {
-      throw err;
+    lastErr = err;
+    ok = false;
+  }
+
+  if (!ok && languageCode) {
+    progress(
+      onProgress,
+      "transcribing",
+      "Premiere rejected the language option — retrying with Premiere’s default (no language code)…"
+    );
+    try {
+      ok = await awaitWithHeartbeat(invokeTranscribe(T, clipItem, ""), heartbeat);
+      lastErr = null;
+    } catch (err) {
+      lastErr = err;
+      ok = false;
     }
   }
-  if (!ok) {
-    throw new Error(
-      `Adobe Speech to Text failed for ${label}. Install an on-device language pack in Premiere (Window → Text), or check Adobe cloud credits.`
-    );
+
+  if (lastErr) {
+    throwIfUnknown(lastErr);
+    throw lastErr;
   }
-  return exportReadyJson(T, clipItem, { timeoutMs, onProgress, name: label });
+  if (!ok) {
+    throw new Error(`${PACKS_CREDITS_MESSAGE} (${label})`);
+  }
+  return exportReadyJson(T, clipItem, waitOpts);
 }
 
 function createAdobeStt({ ppro, call, tickToMs }) {
@@ -142,10 +288,14 @@ function createAdobeStt({ ppro, call, tickToMs }) {
     const name = (await call(clip, "getName")) || "clip";
     let projectItem = null;
     let mediaPath = "";
+    let clipItem = null;
+    let nested = false;
     try {
       projectItem = await call(clip, "getProjectItem");
-      const clipItem = await asClipProjectItem(ppro, projectItem);
-      mediaPath = clipItem ? (await call(clipItem, "getMediaFilePath")) || "" : "";
+      const inspected = await inspectClipProjectItem(ppro, projectItem);
+      clipItem = inspected.nested ? null : inspected.clipItem;
+      nested = inspected.nested;
+      mediaPath = inspected.clipItem ? (await call(inspected.clipItem, "getMediaFilePath")) || "" : "";
       return {
         native: clip,
         name,
@@ -156,6 +306,8 @@ function createAdobeStt({ ppro, call, tickToMs }) {
         outPointMs: tickToMs(outPoint),
         projectItem,
         clipItem,
+        nested,
+        origin: "timeline",
         mediaType: mediaType || "video"
       };
     } catch (_err) {
@@ -169,15 +321,17 @@ function createAdobeStt({ ppro, call, tickToMs }) {
         outPointMs: tickToMs(outPoint),
         projectItem,
         clipItem: null,
+        nested,
+        origin: "timeline",
         mediaType: mediaType || "video"
       };
     }
   }
 
   async function selectedPlacements(sequence) {
-    if (!sequence || typeof sequence.getSelection !== "function") return [];
+    if (!sequence || typeof sequence.getSelection !== "function") return { clips: [], nested: 0 };
     const selection = await sequence.getSelection();
-    if (!selection) return [];
+    if (!selection) return { clips: [], nested: 0 };
     let items = [];
     try {
       items = (await selection.getTrackItems()) || [];
@@ -188,7 +342,62 @@ function createAdobeStt({ ppro, call, tickToMs }) {
     for (let i = 0; i < items.length; i += 1) {
       out.push(await mediaInfo(items[i], "selection"));
     }
-    return out.filter((item) => item.clipItem);
+    return {
+      clips: out.filter((item) => item.clipItem),
+      nested: out.filter((item) => item.nested).length
+    };
+  }
+
+  async function projectPanelPlacements(project) {
+    if (!ppro.ProjectUtils || typeof ppro.ProjectUtils.getSelection !== "function") {
+      return { clips: [], nested: 0 };
+    }
+    let selection = null;
+    try {
+      selection = await ppro.ProjectUtils.getSelection(project);
+    } catch (_err) {
+      return { clips: [], nested: 0 };
+    }
+    if (!selection || typeof selection.getItems !== "function") return { clips: [], nested: 0 };
+    let items = [];
+    try {
+      items = (await selection.getItems()) || [];
+    } catch (_err) {
+      items = [];
+    }
+    const clips = [];
+    let nested = 0;
+    for (let i = 0; i < items.length; i += 1) {
+      const inspected = await inspectClipProjectItem(ppro, items[i]);
+      if (inspected.nested) {
+        nested += 1;
+        continue;
+      }
+      if (!inspected.clipItem) continue;
+      const name =
+        inspected.clipItem.name || (await call(inspected.clipItem, "getName")) || items[i].name || "clip";
+      let mediaPath = "";
+      try {
+        mediaPath = (await call(inspected.clipItem, "getMediaFilePath")) || "";
+      } catch (_err) {
+        mediaPath = "";
+      }
+      clips.push({
+        native: null,
+        name,
+        mediaPath: String(mediaPath || ""),
+        startMs: 0,
+        endMs: 0,
+        inPointMs: 0,
+        outPointMs: 0,
+        projectItem: items[i],
+        clipItem: inspected.clipItem,
+        nested: false,
+        origin: "project",
+        mediaType: "project"
+      });
+    }
+    return { clips, nested };
   }
 
   async function sequencePlacements(sequence) {
@@ -216,6 +425,7 @@ function createAdobeStt({ ppro, call, tickToMs }) {
     }
     await readTrack(sequence.getVideoTrack, videoCount, "video");
     await readTrack(sequence.getAudioTrack, audioCount, "audio");
+    const nested = items.filter((item) => item.nested).length;
     const usable = items.filter((item) => item.clipItem);
     const seenRange = new Set();
     const preferred = [];
@@ -230,11 +440,44 @@ function createAdobeStt({ ppro, call, tickToMs }) {
         seenRange.add(key);
         preferred.push(item);
       });
-    return preferred;
+    return { clips: preferred, nested };
   }
 
   function sourceKey(item) {
     return item.mediaPath ? `path:${item.mediaPath}` : `name:${item.name}`;
+  }
+
+  function resolveLanguage(T, language, onProgress) {
+    let supported = [];
+    try {
+      supported = typeof T.querySupportedLanguages === "function" ? T.querySupportedLanguages() || [] : [];
+    } catch (_err) {
+      supported = [];
+    }
+    const packFn = typeof T.isLanguagePackAvailable === "function" ? (code) => T.isLanguagePackAvailable(code) : null;
+    const resolved =
+      adobeLang.languageForTranscribe && adobeLang.languageForTranscribe(language, supported, packFn);
+    const lang = resolved || { languageCode: "", reason: "none" };
+    if (lang.reason === "pack-unavailable") {
+      progress(
+        onProgress,
+        "transcribing",
+        `Language pack ${lang.skippedCode} is not installed — using Premiere’s default (no language option). Install a pack in Window → Text.`
+      );
+    } else if (lang.reason === "unverified") {
+      progress(
+        onProgress,
+        "transcribing",
+        `Premiere did not list language packs — omitting ${lang.skippedCode || "language"} to avoid error -1609629681.`
+      );
+    } else if (lang.reason === "pack-check-failed") {
+      progress(
+        onProgress,
+        "transcribing",
+        "Could not check language packs — omitting the language option and using Premiere’s default."
+      );
+    }
+    return lang.languageCode || "";
   }
 
   return {
@@ -256,28 +499,57 @@ function createAdobeStt({ ppro, call, tickToMs }) {
         return [];
       }
     },
-    async captureAdobe({ source, language, onProgress } = {}) {
+    async captureAdobe({ source, language, onProgress, importOnly, timeoutMs, pollMs } = {}) {
       const T = transcriptApi(ppro);
       const project = await ppro.Project.getActiveProject();
       if (!project) throw new Error("No active Premiere project.");
-      const sequence = await project.getActiveSequence();
-      if (!sequence) throw new Error("No active sequence. Open a sequence in the timeline.");
-
-      const wantClip = source === "clip" || source === "selection";
-      const placements = wantClip ? await selectedPlacements(sequence) : await sequencePlacements(sequence);
-      if (!placements.length) {
-        if (wantClip) {
-          throw new Error(
-            "No timeline clip selected. Select a source clip (Adobe Speech to Text is per ClipProjectItem), then Transcribe clip."
-          );
-        }
-        throw new Error(
-          "No source clips found on the active sequence. Select a clip on the timeline (Adobe STT is per source clip), then Transcribe clip."
-        );
+      let sequence = null;
+      try {
+        sequence = await project.getActiveSequence();
+      } catch (_err) {
+        sequence = null;
       }
 
-      const supported = typeof T.querySupportedLanguages === "function" ? T.querySupportedLanguages() || [] : [];
-      const languageCode = adobeLang.resolveAdobeLanguage(language, supported);
+      const wantClip = source === "clip" || source === "selection" || source === "import";
+      const onlyExport = Boolean(importOnly) || source === "import";
+      let placements = [];
+      let nestedCount = 0;
+
+      if (wantClip) {
+        const projectSel = await projectPanelPlacements(project);
+        nestedCount += projectSel.nested;
+        if (projectSel.clips.length) {
+          placements = projectSel.clips;
+        } else if (sequence) {
+          const timelineSel = await selectedPlacements(sequence);
+          nestedCount += timelineSel.nested;
+          placements = timelineSel.clips;
+        }
+        if (!placements.length) {
+          if (nestedCount) throw new Error(NESTED_SEQUENCE_MESSAGE);
+          throw new Error(SELECT_CLIP_MESSAGE);
+        }
+      } else {
+        if (!sequence) throw new Error("No active sequence. Open a sequence in the timeline.");
+        const seqSel = await sequencePlacements(sequence);
+        nestedCount = seqSel.nested;
+        placements = seqSel.clips;
+        if (!placements.length) {
+          if (nestedCount) throw new Error(NESTED_SEQUENCE_MESSAGE);
+          throw new Error(
+            "No source clips found on the active sequence. Select a clip in the Project panel (Adobe STT is per ClipProjectItem), then Transcribe clip."
+          );
+        }
+        if (nestedCount) {
+          progress(
+            onProgress,
+            "transcribing",
+            `Skipping ${nestedCount} nested sequence(s) — Adobe Speech to Text only runs on source clips.`
+          );
+        }
+      }
+
+      const languageCode = onlyExport ? "" : resolveLanguage(T, language, onProgress);
 
       const unique = new Map();
       placements.forEach((item) => {
@@ -291,20 +563,27 @@ function createAdobeStt({ ppro, call, tickToMs }) {
         index += 1;
         progress(
           onProgress,
-          "transcribing",
-          `Transcribing in Premiere… (${index}/${unique.size}) ${item.name}`
+          onlyExport ? "exporting" : "transcribing",
+          `${onlyExport ? "Importing Premiere transcript" : "Transcribing in Premiere"}… (${index}/${unique.size}) ${item.name}`
         );
-        jsonBySource.set(key, await transcribeOne(T, item.clipItem, {
-          languageCode,
-          onProgress,
-          name: item.name
-        }));
+        jsonBySource.set(
+          key,
+          await transcribeOne(T, item.clipItem, {
+            languageCode,
+            onProgress,
+            name: item.name,
+            timeoutMs: timeoutMs || DEFAULT_TIMEOUT_MS,
+            pollMs,
+            importOnly: onlyExport
+          })
+        );
       }
 
       progress(onProgress, "mapping", "Mapping words onto the sequence…");
       const mapped = placements.map((item) => {
         const json = jsonBySource.get(sourceKey(item));
         const transcript = adobeJson.mapAdobeTranscript(json, { label: item.name });
+        if (item.origin === "project" || !align.applyAlignment) return transcript;
         return align.applyAlignment(transcript, {
           kind: "media",
           clipStartMs: item.startMs,
@@ -315,13 +594,20 @@ function createAdobeStt({ ppro, call, tickToMs }) {
       });
       const label = wantClip
         ? placements.map((item) => item.name).join(", ")
-        : sequence.name || "Sequence";
+        : (sequence && sequence.name) || "Sequence";
       return adobeJson.mergeAdobeTranscripts(mapped, { label });
     }
   };
 }
 
-const api = { createAdobeStt, asClipProjectItem, transcribeOne, exportReadyJson };
+const api = {
+  createAdobeStt,
+  asClipProjectItem,
+  inspectClipProjectItem,
+  transcribeOne,
+  exportReadyJson,
+  DEFAULT_TIMEOUT_MS
+};
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = api;

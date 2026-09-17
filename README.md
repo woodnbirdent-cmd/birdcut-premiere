@@ -37,15 +37,31 @@ npm run preview   # browser demo of the panel UI (Premiere APIs mocked)
 This is the default paid-alternative path: **no OpenAI key**.
 
 1. Open your sequence.
-2. BirdCut **Settings** → **STT provider** → `Adobe Premiere Speech to Text / native` (saves immediately; top bar shows **Transcribe sequence** / **Clip**).
-3. Language: pick a Premiere pack if the list appears. Install packs in Premiere **Window → Text**. On-device packs stay local; **Adobe cloud languages may still use Adobe credits**.
-4. Click **Transcribe sequence** to run native STT on each source `ClipProjectItem` used on the timeline and merge word timings onto sequence time.
-5. Or select a clip and click **Clip** (`Transcript.transcribeClipProjectItem` → `exportToJSON`).
-6. Status bar: `transcribing in Premiere…` → `exporting transcript…` → `mapping words…`.
+2. BirdCut **Settings** → **STT provider** → `Adobe Premiere Speech to Text / native` (saves immediately; top bar shows **Transcribe sequence** / **Clip** / **Import Premiere transcript**).
+3. Language: pick a Premiere pack if the list appears. Install packs in Premiere **Window → Text**. If the pack for that language is missing, BirdCut **omits** the language option (Premiere default) instead of passing a guessed code that Premiere reports as error **-1609629681**. On-device packs stay local; **Adobe cloud languages may still use Adobe credits**.
+4. **Preferred:** select a source **clip in the Project panel** (`ClipProjectItem`, not a nested sequence), then **Clip**.
+5. **Transcribe sequence** runs native STT on each source clip used on the timeline and merges word timings onto sequence time.
+6. If Premiere’s **Text** panel already transcribed the clip, click **Import Premiere transcript** — BirdCut only calls `exportToJSON` (no new Speech to Text).
+7. Status bar shows elapsed time (`0:45 elapsed`) so a long run does not look stuck: `transcribing in Premiere…` → `exporting transcript…` → `mapping words…`.
 
-Nested sequences cannot be transcribed directly. If a clip already has a Premiere transcript, BirdCut reuses it.
+Nested sequences cannot be transcribed. If `hasTranscript` is already true, BirdCut skips `transcribeClipProjectItem` and only exports.
 
 Whisper HTTP remains available if you want an OpenAI-compatible endpoint instead.
+
+## Troubleshooting: Adobe error -1609629681 (`0xa00f000f`)
+
+Premiere often returns this **generic “unknown error”** instead of “unsupported language”, “pack missing”, or “wrong item selected”. BirdCut maps `-1609629681` / `1609629681` / `0xa00f000f` to:
+
+> Premiere Speech to Text failed (error -1609629681). Install an on-device language pack in Window → Text, select the source clip in the Project panel, or transcribe once in Premiere’s Text panel and run BirdCut Clip to import.
+
+What to do:
+
+1. Premiere **Window → Text** — install the **on-device** language pack for the spoken language (or transcribe once there so Adobe credits/packs are confirmed).
+2. In the **Project** panel, select the actual source clip — not a nested sequence, not only a timeline track item if the Project panel clip is available.
+3. If Text-panel STT already finished, BirdCut **Import Premiere transcript** (or **Clip**, which reuses `hasTranscript`).
+4. If Speech to Text returns `false`, that usually means packs or Adobe cloud credits — not a BirdCut hang.
+
+BirdCut no longer waits ten minutes swallowing that error: it fails fast with the message above.
 
 ## Transcribe with Whisper (optional)
 
@@ -71,8 +87,11 @@ To transcribe **your** sequence or clip with Whisper:
 2. In UDT, select BirdCut → **Unload** → **Load**. Do this even for JS/CSS-only pulls so Premiere 26 does not keep the previous panel.
 3. Open **Window → UXP Plugins → BirdCut**.
 4. Settings → **Adobe Premiere Speech to Text / native** (sticks immediately; no OpenAI key).
-5. Open your sequence → **Transcribe sequence**, or select a source clip → **Clip**.
-6. Confirm the Transcript and Settings panes scroll with the trackpad. If a pane still does not scroll, Unload → Load once more after this pull.
+5. Premiere **Window → Text** — install an on-device language pack if needed.
+6. Select the source clip in the **Project** panel, then:
+   - **Clip** — run Premiere Speech to Text (skips STT when a transcript already exists), or
+   - **Import Premiere transcript** — `exportToJSON` only, after you transcribed in the Text panel.
+7. Confirm the status bar shows elapsed time, and that Transcript/Settings panes still scroll. If the panel looks stale, Unload → Load once more.
 
 ## First run (editing)
 
