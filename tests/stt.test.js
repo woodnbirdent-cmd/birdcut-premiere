@@ -49,6 +49,13 @@ describe("stt router", () => {
     );
   });
 
+  it("refuses Local Whisper without audio bytes", async () => {
+    await assert.rejects(
+      () => transcribeAudio({}, { sttProvider: "local-whisper", localWhisperBaseUrl: "http://127.0.0.1:8090/v1" }, {}),
+      /Local Whisper needs audio/i
+    );
+  });
+
   it("maps sequence-bounce Whisper timings using alignment offset", async () => {
     const fetchImpl = async () => ({
       ok: true,

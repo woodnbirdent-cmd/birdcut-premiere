@@ -49,7 +49,8 @@ Cut-planning is the source of truth and is unit-tested. Premiere apply is best-e
 | Provider | Behavior |
 | --- | --- |
 | `mock` | Loads `fixtures/sample-transcript.json`. Ignores timeline media (offline demo). |
-| `adobe` | Premiere native Speech to Text: `Transcript.transcribeClipProjectItem` on each source `ClipProjectItem`, then `exportToJSON`. JSON follows Adobe’s published spec (`language` + `segments[].words[]` with seconds). Word times map onto the timeline via clip start / in / out. **No OpenAI key.** Cloud languages may still use Adobe credits; on-device packs do not. |
+| `local-whisper` | Bounce sequence/clip with audio `.epr`, then `POST http://127.0.0.1:8090/v1/audio/transcriptions` (faster-whisper sidecar). **No API key.** `GET /health` — panel shows **Start the Local Whisper sidecar** if the process is down. Word times map like Whisper HTTP. |
+| `adobe` | Premiere native Speech to Text: `Transcript.transcribeClipProjectItem` on each source `ClipProjectItem`, then `exportToJSON`. JSON follows Adobe’s published spec (`language` + `segments[].words[]` with seconds). Word times map onto the timeline via clip start / in / out. **No OpenAI key.** Cloud languages may still use Adobe credits; on-device packs do not. Optional on Premiere 26.5 Mac if native STT fails. |
 | `whisper` | Captures **active sequence** (`exportSequence` + audio `.epr`) or **selected clip** (`getMediaFilePath()` when possible, else encode/bounce), then `POST {baseUrl}/audio/transcriptions` with word timestamps. Times are mapped onto sequence time (`src/stt/align-transcript.js`). |
 
 API keys are read from Settings (UXP `secureStorage` when present, else plugin `localStorage`) or `BIRDCUT_STT_API_KEY` for Node. They are never hardcoded and are omitted from the public settings snapshot.
