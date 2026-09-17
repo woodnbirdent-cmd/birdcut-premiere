@@ -12,3 +12,6 @@ preview/bundle.js
 coverage/
 .vscode/
 .idea/
+sidecar/local-whisper/.venv/
+sidecar/local-whisper/__pycache__/
+sidecar/local-whisper/.cache/

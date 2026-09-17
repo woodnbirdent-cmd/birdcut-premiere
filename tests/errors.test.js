@@ -19,4 +19,21 @@ describe("STT error copy", () => {
     );
     assert.match(explainSttError(new Error("Empty audio: 0 bytes")), /audible audio/);
   });
+
+  it("explains a missing Local Whisper sidecar", () => {
+    assert.match(
+      explainSttError(
+        new Error("Start the Local Whisper sidecar. It is not running at http://127.0.0.1:8090."),
+        { provider: "local-whisper", baseUrl: "http://127.0.0.1:8090/v1" }
+      ),
+      /Start the Local Whisper sidecar/
+    );
+    assert.match(
+      explainSttError(new Error("Failed to fetch"), {
+        provider: "local-whisper",
+        baseUrl: "http://127.0.0.1:8090/v1"
+      }),
+      /Start the Local Whisper sidecar/
+    );
+  });
 });
