@@ -101,6 +101,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     draft: null,
     settings: settingsApi.normalizeSettings(settingsApi.DEFAULT_SETTINGS),
     hostStatus: { message: "Connecting…", sequenceName: "", available: false },
+    adobeLanguages: [],
     cutPlan: null,
     message: "",
     messageTone: "info",
@@ -156,6 +157,13 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           state.sequenceItems = [];
         }
       }
+      if (host.available && typeof host.queryAdobeLanguages === "function") {
+        try {
+          state.adobeLanguages = (await host.queryAdobeLanguages()) || [];
+        } catch (_err) {
+          state.adobeLanguages = [];
+        }
+      }
     } catch (err) {
       state.hostStatus = { available: false, message: err.message || String(err) };
     }
@@ -163,13 +171,18 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   async function transcribe(sourceOverride) {
+    const provider = state.settings.sttProvider;
     const source =
       sourceOverride ||
-      (state.settings.sttProvider === "whisper" ? state.settings.transcribeSource : "mock");
+      (provider === "mock" ? "mock" : state.settings.transcribeSource || "sequence");
     state.busy = true;
     state.progressStage = "starting";
     setMessage(
-      state.settings.sttProvider === "mock" ? "Loading demo transcript…" : "Preparing audio…",
+      provider === "mock"
+        ? "Loading demo transcript…"
+        : provider === "adobe"
+          ? "Starting Adobe Speech to Text…"
+          : "Preparing audio…",
       "info"
     );
     render();
@@ -179,7 +192,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       render();
     };
     try {
-      if (state.settings.sttProvider === "mock") {
+      if (provider === "mock") {
         const transcript = await stt.transcribeAudio({}, state.settings, {
           fixture,
           onProgress
@@ -187,7 +200,24 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Whisper to transcribe the active sequence or a selected clip.`,
+          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Adobe native or Whisper to transcribe the timeline.`,
+          "ok"
+        );
+        return;
+      }
+
+      if (provider === "adobe") {
+        const transcript = await stt.transcribeAudio({ source }, state.settings, {
+          captureAdobe:
+            typeof host.transcribeAdobe === "function"
+              ? (opts) => host.transcribeAdobe(opts)
+              : null,
+          onProgress
+        });
+        commitTranscript(transcript);
+        history.reset(state.transcript);
+        setMessage(
+          `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
           "ok"
         );
         return;
@@ -538,17 +568,59 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
 
   function renderSettings() {
     const s = state.settings;
+    const packs = state.adobeLanguages || [];
+    let selectedPack = "";
+    if (packs.length) {
+      const fold = (value) => String(value || "").toLowerCase();
+      const current = fold(s.language);
+      const exact = packs.find(
+        (pack) => fold(pack.languageCode) === current || fold(pack.locale) === current
+      );
+      const prefix = packs.find((pack) => fold(pack.languageCode).split("-")[0] === current.split("-")[0]);
+      selectedPack = (exact || prefix || packs[0]).languageCode;
+    }
+    const packNote = packs.length
+      ? packs
+          .map((pack) => {
+            const mark = pack.packAvailable === true ? " (on-device)" : pack.packAvailable === false ? " (cloud)" : "";
+            return `${pack.displayString || pack.languageCode}${mark}`;
+          })
+          .join(", ")
+      : "";
+    const languageField =
+      s.sttProvider === "adobe" && packs.length
+        ? `<label>Language (Adobe Speech to Text)
+            <select name="language">
+              ${packs
+                .map(
+                  (pack) =>
+                    `<option value="${escapeHtml(pack.languageCode)}"${
+                      pack.languageCode === selectedPack ? " selected" : ""
+                    }>${escapeHtml(pack.displayString || pack.languageCode)}</option>`
+                )
+                .join("")}
+            </select>
+          </label>`
+        : `<label>Language
+            <input name="language" value="${escapeHtml(s.language)}" />
+          </label>`;
     return h(`
       <form id="settings-form" class="settings">
-        <label>Language
-          <input name="language" value="${escapeHtml(s.language)}" />
-        </label>
+        ${languageField}
         <label>STT provider
           <select name="sttProvider">
             <option value="mock"${s.sttProvider === "mock" ? " selected" : ""}>Mock / demo transcript (ignores timeline)</option>
+            <option value="adobe"${s.sttProvider === "adobe" ? " selected" : ""}>Adobe Premiere Speech to Text / native</option>
             <option value="whisper"${s.sttProvider === "whisper" ? " selected" : ""}>OpenAI Whisper-compatible HTTP</option>
           </select>
         </label>
+        ${
+          s.sttProvider === "adobe"
+            ? `<p class="muted">Uses Premiere’s Speech to Text on each source clip. No OpenAI key. On-device packs (when installed) stay local; Adobe cloud languages may still use Adobe credits. ${
+                packNote ? `Available: ${escapeHtml(packNote)}.` : "Install language packs in Premiere: Window → Text."
+              }</p>`
+            : ""
+        }
         <label>Whisper base URL
           <input name="whisperBaseUrl" value="${escapeHtml(s.whisperBaseUrl)}" />
         </label>
@@ -561,11 +633,11 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
             <option value="clip"${s.transcribeSource === "clip" ? " selected" : ""}>Selected clip(s)</option>
           </select>
         </label>
-        <label>Audio-only .epr preset (optional)
+        <label>Audio-only .epr preset (optional, Whisper bounce)
           <input name="audioPresetPath" value="${escapeHtml(s.audioPresetPath)}" placeholder="Path to MP3 or WAV preset" />
         </label>
         <button type="button" class="btn" id="btn-pick-preset">Choose .epr…</button>
-        <label>API key (stored locally, never hardcoded)
+        <label>API key (Whisper only — stored locally, never hardcoded)
           <input name="apiKey" type="password" placeholder="${escapeHtml(s.hasApiKey ? s.apiKeyPreview : "Paste key — or set BIRDCUT_STT_API_KEY")}" />
         </label>
         <label>Filler words (comma or newline)
@@ -613,10 +685,14 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           </div>
           <div class="top-actions">
             ${
-              state.settings.sttProvider === "whisper"
+              state.settings.sttProvider === "whisper" || state.settings.sttProvider === "adobe"
                 ? `<button type="button" class="btn primary" id="btn-transcribe-sequence"${state.busy ? " disabled" : ""}>Transcribe sequence</button>
                    <button type="button" class="btn" id="btn-transcribe-clip"${state.busy ? " disabled" : ""}>Clip</button>
-                   <button type="button" class="btn" id="btn-transcribe-file"${state.busy ? " disabled" : ""}>Pick file</button>`
+                   ${
+                     state.settings.sttProvider === "whisper"
+                       ? `<button type="button" class="btn" id="btn-transcribe-file"${state.busy ? " disabled" : ""}>Pick file</button>`
+                       : ""
+                   }`
                 : `<button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>`
             }
             <button type="button" class="btn danger" id="btn-apply"${state.busy ? " disabled" : ""}>Apply to sequence</button>

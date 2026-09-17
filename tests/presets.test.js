@@ -20,6 +20,7 @@ describe("audio presets", () => {
   it("includes Premiere 26 Mac systempreset roots", () => {
     const roots = presets.defaultPresetRoots({ homeDir: "/Users/demo" });
     assert.ok(roots.some((root) => root.indexOf("Premiere Pro 2026") >= 0 && root.indexOf("systempresets") >= 0));
+    assert.ok(roots.some((root) => root.indexOf("/Volumes/WNB Apps/Applications") >= 0));
     assert.ok(roots.some((root) => root.indexOf("/Users/demo/Documents/Adobe/Adobe Media Encoder/26.0/Presets") >= 0));
   });
 });

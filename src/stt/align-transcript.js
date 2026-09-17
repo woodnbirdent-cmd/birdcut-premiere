@@ -53,7 +53,7 @@ function alignMediaWordsToSequence(transcript, alignment) {
   next.durationMs = next.words.reduce((max, word) => Math.max(max, word.endMs), clipStartMs);
   next.source = {
     ...(next.source || {}),
-    kind: "whisper",
+    kind: (next.source && next.source.kind) || "whisper",
     label: alignment.label || next.source.label,
     origin: "clip"
   };
@@ -65,7 +65,7 @@ function applyAlignment(transcript, alignment) {
     const shifted = shiftTimes(transcript, alignment && alignment.offsetMs);
     shifted.source = {
       ...(shifted.source || {}),
-      kind: "whisper",
+      kind: (shifted.source && shifted.source.kind) || "whisper",
       label: (alignment && alignment.label) || shifted.source.label,
       origin: "sequence"
     };

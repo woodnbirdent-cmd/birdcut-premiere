@@ -1,0 +1,55 @@
+{
+  "language": "en-us",
+  "segments": [
+    {
+      "duration": 3.79,
+      "language": "en-us",
+      "speaker": "631fbbc0-9c02-47c4-bb8c-732c020fa24f",
+      "start": 1.74,
+      "words": [
+        {
+          "confidence": 1.0,
+          "duration": 0.63,
+          "eos": false,
+          "start": 1.74,
+          "tags": [],
+          "text": "Hello",
+          "type": "word"
+        },
+        {
+          "confidence": 0.95,
+          "duration": 0.42,
+          "eos": false,
+          "start": 2.37,
+          "tags": [],
+          "text": "world",
+          "type": "word"
+        },
+        {
+          "confidence": 1.0,
+          "duration": 0.08,
+          "eos": true,
+          "start": 2.79,
+          "tags": [],
+          "text": ".",
+          "type": "punctuation"
+        },
+        {
+          "confidence": 0.8,
+          "duration": 0.2,
+          "eos": false,
+          "start": 3.1,
+          "tags": ["filler"],
+          "text": "um",
+          "type": "word"
+        }
+      ]
+    }
+  ],
+  "speakers": [
+    {
+      "id": "631fbbc0-9c02-47c4-bb8c-732c020fa24f",
+      "name": "Jane Doe"
+    }
+  ]
+}

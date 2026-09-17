@@ -89,6 +89,7 @@ describe("settings", () => {
 
   it("normalizes whisper vs unknown providers", () => {
     assert.equal(settings.normalizeSettings({ sttProvider: "whisper" }).sttProvider, "whisper");
+    assert.equal(settings.normalizeSettings({ sttProvider: "adobe" }).sttProvider, "adobe");
     assert.equal(settings.normalizeSettings({ sttProvider: "demo" }).sttProvider, "mock");
     assert.equal(settings.normalizeSettings({}).sttProvider, "mock");
   });

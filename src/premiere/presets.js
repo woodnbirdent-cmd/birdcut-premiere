@@ -45,7 +45,9 @@ function scorePresetName(name) {
 function defaultPresetRoots({ homeDir, extraRoots } = {}) {
   const home = homeDir || "";
   const macApps = [
-    "/Applications/Adobe Premiere Pro 2026/Adobe Premiere Pro 2026.app/Contents/MediaIO/systempresets",
+    "/Volumes/WNB Apps/Applications/Adobe Premiere Pro 2026/Adobe Premiere Pro 2026.app/Contents/MediaIO/systempresets",
+    "/Volumes/WNB Apps/Applications/Adobe Premiere Pro 2026.app/Contents/MediaIO/systempresets",
+    "/Volumes/WNB Apps/Applications/Adobe Media Encoder 2026/Adobe Media Encoder 2026.app/Contents/MediaIO/systempresets",
     "/Applications/Adobe Premiere Pro 2026.app/Contents/MediaIO/systempresets",
     "/Applications/Adobe Premiere Pro 2025/Adobe Premiere Pro 2025.app/Contents/MediaIO/systempresets",
     "/Applications/Adobe Premiere Pro 2025.app/Contents/MediaIO/systempresets",

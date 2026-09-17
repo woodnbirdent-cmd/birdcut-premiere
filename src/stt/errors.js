@@ -6,7 +6,7 @@ function explainSttError(err, context) {
   const source = (context && context.source) || "sequence";
 
   if (/missing stt api key/i.test(raw) || /api key/i.test(raw) && /missing|set it/i.test(raw)) {
-    return "No STT API key. Settings → STT provider: Whisper → paste the key → Save, then Transcribe again.";
+    return "No Whisper API key. Settings → STT provider: Whisper → paste the key → Save. For Adobe Speech to Text, switch the provider to Adobe native (no OpenAI key).";
   }
   if (/401|unauthorized/i.test(raw)) {
     return "STT rejected the API key (HTTP 401). Check the key in Settings. It is stored locally, never in the repo.";
@@ -29,8 +29,14 @@ function explainSttError(err, context) {
   if (/no active sequence/i.test(raw)) {
     return "No active sequence. Open a sequence in the timeline, then Transcribe sequence.";
   }
-  if (/no clip selected|no selection/i.test(raw)) {
-    return "No timeline clip selected. Select a clip, then Transcribe clip — or use Transcribe sequence.";
+  if (/no clip selected|no selection|per source clip|per ClipProjectItem/i.test(raw)) {
+    return "No timeline clip selected. Select a source clip, then Transcribe clip — or use Transcribe sequence for Adobe native.";
+  }
+  if (/speech to text is not available|transcribeClipProjectItem is missing|25\.6/i.test(raw)) {
+    return "Adobe Speech to Text needs Premiere Pro 25.6+. Update Premiere, Unload → Load BirdCut, then try again.";
+  }
+  if (/language pack|adobe cloud credits|failed for /i.test(raw) && /adobe|speech to text/i.test(raw)) {
+    return raw;
   }
   if (/timed out|timeout/i.test(raw)) {
     return `Export timed out while bouncing the ${source}. Try a shorter range, or set an MP3/WAV .epr path in Settings.`;
