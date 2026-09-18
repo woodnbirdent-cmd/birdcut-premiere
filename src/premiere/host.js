@@ -41,8 +41,20 @@ function loadAdobeStt() {
   return globalThis.BirdCutAdobeStt || {};
 }
 
+function loadApplyCaptions() {
+  if (typeof require === "function") {
+    try {
+      return require("./apply-captions");
+    } catch (_err) {
+      /* fall through */
+    }
+  }
+  return globalThis.BirdCutApplyCaptions || {};
+}
+
 const bounce = loadBounce();
 const adobeSttApi = loadAdobeStt();
+const applyCaptionsApi = loadApplyCaptions();
 
 function createUnavailableHost() {
   return {
@@ -83,6 +95,13 @@ function createUnavailableHost() {
     },
     async saveTextFile() {
       return { ok: false, message: "File picker is not available outside Premiere UXP." };
+    },
+    async addCaptionsToSequence() {
+      return {
+        ok: false,
+        applied: false,
+        message: "Premiere APIs are not available in this environment. Export SRT instead, or load BirdCut inside Premiere."
+      };
     },
     async setPlayerPosition() {
       return false;
@@ -236,6 +255,14 @@ function createPremiereHost(overrides) {
       const apply = (overrides && overrides.applyCutPlanImpl) || null;
       if (apply) return apply(ppro, plan, this);
       throw new Error("Apply implementation missing.");
+    },
+    async addCaptionsToSequence(payload, executeCaptions) {
+      if (typeof executeCaptions === "function") {
+        return executeCaptions(ppro, uxp, this, payload);
+      }
+      const impl = (overrides && overrides.addCaptionsImpl) || applyCaptionsApi.addCaptionsToSequence;
+      if (typeof impl === "function") return impl(ppro, uxp, this, payload);
+      throw new Error("Add-captions implementation missing.");
     },
     async pickAudioFile() {
       const fs = uxp && uxp.storage && uxp.storage.localFileSystem;

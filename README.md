@@ -1,6 +1,6 @@
 # BirdCut
 
-BirdCut is a Premiere Pro UXP panel for **text-based editing**: transcribe the active sequence or a selected clip, delete words, preview trim drafts, export captions, and apply a ripple cut plan to the timeline.
+BirdCut is a Premiere Pro UXP panel for **text-based editing**: transcribe the active sequence or a selected clip, delete words, preview trim drafts, **add captions to the sequence**, and apply a ripple cut plan to the timeline.
 
 It is inspired by the *feature goals* of tools like Premiere Assistant-style transcript editors. It does **not** copy anyone else’s branding, name, or assets.
 
@@ -108,14 +108,38 @@ To transcribe **your** sequence or clip with Whisper:
 4. In Terminal (leave it running): `cd sidecar/local-whisper && ./start.sh`
 5. Settings → **Local Whisper (on this Mac)** (sticks immediately; no OpenAI key).
 6. Confirm `.epr` (e.g. `BirdCut Audio MP3.epr`) → **Transcribe sequence**.
-7. If the top bar says **Start the Local Whisper sidecar**, the Python server is not up. Confirm `curl -s http://127.0.0.1:8090/health`. If a pane still does not scroll, Unload → Load once more.
+7. After words load, click **Add captions to sequence** (no deleted ranges needed). Pick a style on the Captions tab first if you want.
+8. If the top bar says **Start the Local Whisper sidecar**, the Python server is not up. Confirm `curl -s http://127.0.0.1:8090/health`. If a pane still does not scroll, Unload → Load once more.
 
 ## First run (editing)
 
 1. On **Transcript**: search, click words (Shift for a range), **Delete**, **Undo** / **Redo**.
 2. **Trim**: preview silence / fillers / retakes / shortform. **Save draft** or **Discard**.
-3. **Captions**: **Export SRT**.
-4. **Apply to sequence** — save the project first. See `docs/premiere-api-limits.md`.
+3. **Captions**: pick a style preset, then **Add captions to sequence**. That action does **not** need deleted words. **Export SRT** remains available.
+4. **Apply cuts** — only for ranges you marked for deletion. Save the project first. See `docs/premiere-api-limits.md`.
+
+## Add captions + styles
+
+After a successful transcribe, the primary next step is **Add captions to sequence** (top bar and Captions tab). You do **not** need to delete words first. **Apply cuts** is a separate action and will say so if nothing is marked for removal.
+
+### Style presets
+
+The Captions tab includes named looks (also in Settings → Caption style preset; the choice persists):
+
+- **Clean Lower Third** — white Arial, bottom, thin outline
+- **Bold Center** — large centered type
+- **Karaoke** — word-timed yellow cues (one word at a time)
+- **Pop** — short punchy phrases, large type
+- **Subtitle box** — white type on a semi-transparent bar
+- **Social vertical-safe** — larger type and extra bottom margin for 9:16
+
+Each preset sets font family, size, color, outline/shadow, alignment, and vertical position. Karaoke / pop / typewriter-style motion is **approximated with cue timing**. Premiere UXP still has no API to keyframe caption motion or to highlight a word inside a full line.
+
+### What Premiere actually receives
+
+BirdCut writes a styled `.srt` (and a TTML `.xml`) to the plugin temp folder, `project.importFiles`s it, then tries `SequenceEditor.createInsertProjectItemAction` on the imported item. Adobe has not shipped `createCaptionTrack()` for UXP. If insert does not create a caption track, the file is still in the Project panel — drag it onto the sequence.
+
+Reload after this change: UXP Developer Tool → BirdCut → **Unload** → **Load**, then Window → UXP Plugins → BirdCut.
 
 ## Transcript JSON
 

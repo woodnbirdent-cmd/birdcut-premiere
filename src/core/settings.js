@@ -36,7 +36,8 @@ const DEFAULT_SETTINGS = {
   padCutMs: 40,
   includeSpeakerInCaptions: true,
   transcribeSource: "sequence",
-  audioPresetPath: ""
+  audioPresetPath: "",
+  captionPresetId: "clean-lower-third"
 };
 
 function isWhisperLike(provider) {
@@ -77,7 +78,8 @@ function normalizeSettings(raw) {
         ? DEFAULT_SETTINGS.includeSpeakerInCaptions
         : Boolean(input.includeSpeakerInCaptions),
     transcribeSource: input.transcribeSource === "clip" ? "clip" : "sequence",
-    audioPresetPath: String(input.audioPresetPath || "").trim()
+    audioPresetPath: String(input.audioPresetPath || "").trim(),
+    captionPresetId: String(input.captionPresetId || DEFAULT_SETTINGS.captionPresetId).trim() || DEFAULT_SETTINGS.captionPresetId
   };
 }
 

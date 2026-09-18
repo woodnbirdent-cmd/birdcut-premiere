@@ -49,7 +49,16 @@ async function bootPreview() {
       return {
         ok: true,
         applied: false,
-        message: `Preview: ${ops.length} ops, ${ranges.length} ranges (not sent to Premiere).`
+        message: `Preview: ${ops.length} cut ops, ${ranges.length} ranges (not sent to Premiere).`
+      };
+    },
+    async addCaptionsToSequence(payload) {
+      const cues = (payload && payload.cueCount) || 0;
+      const style = (payload && payload.presetName) || "preset";
+      return {
+        ok: true,
+        applied: false,
+        message: `Preview: would add ${cues} caption cue(s) (${style}) to the sequence. Load BirdCut in Premiere to import the SRT.`
       };
     },
     async captureAudio({ source, onProgress }) {

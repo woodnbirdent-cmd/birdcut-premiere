@@ -14,7 +14,12 @@ async function applyCutPlanToSequence(ppro, plan, host) {
     return { ok: false, applied: false, message: "Missing Premiere host or cut plan." };
   }
   if (!plan.operations || !plan.operations.length) {
-    return { ok: true, applied: false, message: "Nothing to apply — no deleted ranges in the transcript." };
+    return {
+      ok: true,
+      applied: false,
+      message:
+        "Nothing to apply — no deleted ranges in the transcript. Apply cuts only removes marked words. Use Add captions to sequence for captions."
+    };
   }
 
   let snapshot;
