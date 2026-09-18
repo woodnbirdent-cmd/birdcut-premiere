@@ -115,29 +115,36 @@ To transcribe **your** sequence or clip with Whisper:
 
 1. On **Transcript**: search, click words (Shift for a range), **Delete**, **Undo** / **Redo**.
 2. **Trim**: preview silence / fillers / retakes / shortform. **Save draft** or **Discard**.
-3. **Captions**: pick a style preset, then **Add captions to sequence**. That action does **not** need deleted words. **Export SRT** remains available.
+3. **Captions**: pick a style, set **1 word / 2 words / Phrase**, font, and colors, then **Add captions to sequence**. That action does **not** need deleted words. **Export SRT** remains available.
 4. **Apply cuts** — only for ranges you marked for deletion. Save the project first. See `docs/premiere-api-limits.md`.
 
 ## Add captions + styles
 
 After a successful transcribe, the primary next step is **Add captions to sequence** (top bar and Captions tab). You do **not** need to delete words first. **Apply cuts** is a separate action and will say so if nothing is marked for removal.
 
-### Style presets
+### Captions tab (owns the look)
 
-The Captions tab includes named looks (also in Settings → Caption style preset; the choice persists):
+Style, **words on screen**, font, and colors live on **Captions**, not Settings. Settings only keeps speaker names for phrase captions.
 
-- **Clean Lower Third** — white Arial, bottom, thin outline
-- **Bold Center** — large centered type
-- **Karaoke** — word-timed yellow cues (one word at a time)
-- **Pop** — short punchy phrases, large type
-- **Subtitle box** — white type on a semi-transparent bar
-- **Social vertical-safe** — larger type and extra bottom margin for 9:16
+- **Presets**: Clean Lower Third, Bold Center, Karaoke, Pop, Subtitle box, Social vertical-safe
+- **Words on screen**: **1 word**, **2 words**, or **Phrase**. Karaoke defaults to 1; Pop defaults to 2. Timing comes from Whisper/Adobe **word timestamps** when the transcript has them.
+- **Font + color**: system-safe font list, text color, outline color. Live preview updates in the panel. Choices persist with the preset as overrides.
 
-Each preset sets font family, size, color, outline/shadow, alignment, and vertical position. Karaoke / pop / typewriter-style motion is **approximated with cue timing**. Premiere UXP still has no API to keyframe caption motion or to highlight a word inside a full line.
+### Animation limits (honest)
+
+Premiere UXP still has **no** caption-track keyframes, **no** MOGRT source-text API, and **no** `createCaptionTrack()`. BirdCut cannot play a true After Effects pop/bounce on the timeline.
+
+What we *can* do:
+
+- Short **1–2 word** cues with snappy in/out from word times (the “words pop on” feel)
+- Styled SRT (`{\an}` + font color) and TTML (font, color, outline, region)
+- A **panel-only** scale pop in the Captions preview so you can judge the look
+
+Karaoke is sequential word cues, not a highlight inside a full line.
 
 ### What Premiere actually receives
 
-BirdCut writes a styled `.srt` (and a TTML `.xml`) to the plugin temp folder, `project.importFiles`s it, then tries `SequenceEditor.createInsertProjectItemAction` on the imported item. Adobe has not shipped `createCaptionTrack()` for UXP. If insert does not create a caption track, the file is still in the Project panel — drag it onto the sequence.
+BirdCut writes a styled `.srt` (and a TTML `.xml`) to the plugin temp folder, `project.importFiles`s it, then tries `SequenceEditor.createInsertProjectItemAction` on the imported item. If insert does not create a caption track, the file is still in the Project panel — drag it onto the sequence.
 
 Reload after this change: UXP Developer Tool → BirdCut → **Unload** → **Load**, then Window → UXP Plugins → BirdCut.
 

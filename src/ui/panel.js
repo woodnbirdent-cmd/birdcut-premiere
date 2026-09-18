@@ -54,7 +54,10 @@ function readSettingsFromForm(form) {
   if (!form) return null;
   const language = fieldValue(form, "language");
   const sttProvider = fieldValue(form, "sttProvider");
-  if (!language && !sttProvider) return null;
+  const captionFont = fieldValue(form, "captionFontFamily");
+  const captionWords = fieldValue(form, "captionWordsPerCue");
+  const captionColor = fieldValue(form, "captionColor");
+  if (!language && !sttProvider && !captionFont && !captionWords && !captionColor) return null;
   const valueOf = (name) => {
     const field = fieldValue(form, name);
     return field ? field.value : undefined;
@@ -75,7 +78,11 @@ function readSettingsFromForm(form) {
     audioPresetPath: valueOf("audioPresetPath"),
     localWhisperBaseUrl: valueOf("localWhisperBaseUrl"),
     localWhisperModel: valueOf("localWhisperModel"),
-    captionPresetId: valueOf("captionPresetId")
+    captionPresetId: valueOf("captionPresetId"),
+    captionWordsPerCue: valueOf("captionWordsPerCue"),
+    captionFontFamily: valueOf("captionFontFamily"),
+    captionColor: valueOf("captionColor"),
+    captionOutlineColor: valueOf("captionOutlineColor")
   };
   Object.keys(data).forEach((key) => {
     if (data[key] === undefined) delete data[key];
@@ -448,9 +455,8 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   async function exportSrt() {
-    const srt = captions.transcriptToSrt(state.transcript, {
-      includeSpeakers: state.settings.includeSpeakerInCaptions
-    });
+    const payload = buildCaptionPayload();
+    const srt = payload.srt || payload.srtPlain;
     if (!srt) {
       setMessage("Nothing to export. Transcribe first.", "warn");
       render();
@@ -482,18 +488,38 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       : { id: state.settings.captionPresetId, name: "Captions" };
   }
 
+  function currentCaptionStyle() {
+    const preset = currentCaptionPreset();
+    if (captionStyles.mergeStyle) {
+      return captionStyles.mergeStyle(preset, {
+        fontFamily: state.settings.captionFontFamily,
+        color: state.settings.captionColor,
+        outlineColor: state.settings.captionOutlineColor,
+        wordsPerCue: state.settings.captionWordsPerCue
+      });
+    }
+    return preset;
+  }
+
   function buildCaptionPayload() {
+    const style = currentCaptionStyle();
     return captions.buildCaptionExport
       ? captions.buildCaptionExport(state.transcript, {
-          includeSpeakers: state.settings.includeSpeakerInCaptions,
-          presetId: state.settings.captionPresetId
+          includeSpeakers: state.settings.includeSpeakerInCaptions && style.wordsPerCue === "phrase",
+          preset: style,
+          presetId: style.id,
+          wordsPerCue: style.wordsPerCue,
+          fontFamily: style.fontFamily,
+          color: style.color,
+          outlineColor: style.outlineColor
         })
       : {
           srt: captions.transcriptToSrt(state.transcript, {
             includeSpeakers: state.settings.includeSpeakerInCaptions
           }),
           cueCount: 0,
-          preset: currentCaptionPreset()
+          preset: style,
+          wordsPerCue: style.wordsPerCue
         };
   }
 
@@ -544,16 +570,31 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
 
   async function selectCaptionPreset(id) {
     const preset = captionStyles.getPreset ? captionStyles.getPreset(id) : { id };
-    state.settings = await settingsStore.save({ captionPresetId: preset.id });
+    state.settings = await settingsStore.save({
+      captionPresetId: preset.id,
+      captionWordsPerCue: preset.wordsPerCue || "phrase",
+      captionFontFamily: preset.fontFamily || "",
+      captionColor: preset.color || "",
+      captionOutlineColor: preset.outlineColor || ""
+    });
     setMessage(`Caption style: ${preset.name}.`, "ok");
     render();
     return state.settings;
   }
 
+  async function saveCaptionStyle(partial) {
+    state.settings = await settingsStore.save(partial || {});
+    render();
+    return state.settings;
+  }
+
   function flushFormIntoState() {
-    const form = root && root.querySelector ? root.querySelector("#settings-form") : null;
-    const data = readSettingsFromForm(form);
-    if (!data) return null;
+    const settingsForm = root && root.querySelector ? root.querySelector("#settings-form") : null;
+    const captionsForm = root && root.querySelector ? root.querySelector("#captions-form") : null;
+    const fromSettings = readSettingsFromForm(settingsForm);
+    const fromCaptions = readSettingsFromForm(captionsForm);
+    const data = { ...(fromSettings || {}), ...(fromCaptions || {}) };
+    if (!Object.keys(data).length) return null;
     settingsStore.save(data);
     state.settings = settingsStore.get();
     return data;
@@ -673,21 +714,24 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   function renderCaptions() {
-    const preset = currentCaptionPreset();
+    const style = currentCaptionStyle();
     const payload = buildCaptionPayload();
     const cues = payload.cues || [];
     const srt = payload.srtPlain || payload.srt || "";
     const presets = captionStyles.listPresets ? captionStyles.listPresets() : [];
+    const fonts = captionStyles.listFonts ? captionStyles.listFonts(style.fontFamily) : [style.fontFamily || "Arial"];
     const sample = cues[0] ? cues[0].text.replace(/\n/g, " ") : "Captions land here after transcribe";
-    const bg = preset.background;
+    const bg = style.background;
+    const motion =
+      style.animation === "pop" || style.animation === "karaoke" || style.wordsPerCue === "1" || style.wordsPerCue === "2";
     const previewStyle = [
-      `font-family:${escapeHtml(preset.fontFamily || "Arial")}, sans-serif`,
-      `font-size:${Math.max(14, Math.round((preset.fontSize || 42) / 3))}px`,
-      `font-weight:${escapeHtml(preset.fontWeight || "600")}`,
-      `color:${escapeHtml(preset.color || "#fff")}`,
-      `text-align:${escapeHtml(preset.alignment || "center")}`,
-      preset.outlineWidth
-        ? `text-shadow: 0 0 ${preset.outlineWidth}px ${preset.outlineColor || "#000"}, 0 1px 2px ${preset.outlineColor || "#000"}`
+      `font-family:${escapeHtml(style.fontFamily || "Arial")}, sans-serif`,
+      `font-size:${Math.max(14, Math.round((style.fontSize || 42) / 3))}px`,
+      `font-weight:${escapeHtml(style.fontWeight || "600")}`,
+      `color:${escapeHtml(style.color || "#fff")}`,
+      `text-align:${escapeHtml(style.alignment || "center")}`,
+      style.outlineWidth
+        ? `text-shadow: 0 0 ${style.outlineWidth}px ${style.outlineColor || "#000"}, 0 1px 2px ${style.outlineColor || "#000"}`
         : "",
       bg
         ? `background: rgba(0,0,0,${bg.opacity == null ? 0.65 : bg.opacity}); padding: 8px 10px; border-radius: 4px;`
@@ -695,7 +739,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     ]
       .filter(Boolean)
       .join(";");
-    const posClass = `is-${preset.verticalPosition || "bottom"}`;
+    const posClass = `is-${style.verticalPosition || "bottom"}`;
     const list = cues
       .slice(0, 40)
       .map(
@@ -706,27 +750,61 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     const extra = cues.length > 40 ? `<p class="muted">${cues.length - 40} more cues…</p>` : "";
     const cards = presets
       .map((item) => {
-        const selected = item.id === preset.id ? " selected" : "";
+        const selected = item.id === style.id ? " selected" : "";
         return `<button type="button" class="preset-card${selected}" data-caption-preset="${escapeHtml(item.id)}">
           <span class="preset-sample" style="color:${escapeHtml(item.color)};font-family:${escapeHtml(item.fontFamily)},sans-serif">${escapeHtml(item.name)}</span>
           <span class="muted">${escapeHtml(item.description)}</span>
         </button>`;
       })
       .join("");
+    const wordsValue = style.wordsPerCue || "phrase";
+    const fontOptions = fonts
+      .map(
+        (font) =>
+          `<option value="${escapeHtml(font)}"${font === style.fontFamily ? " selected" : ""}>${escapeHtml(font)}</option>`
+      )
+      .join("");
     return h(`
+      <form id="captions-form" class="captions-form">
       <p class="muted">Adding captions does not require deleted ranges. Apply cuts is only for words you mark for removal.</p>
       <div class="row">
         <button type="button" class="btn primary js-add-captions" id="btn-add-captions"${state.busy || !cues.length ? " disabled" : ""}>Add captions to sequence</button>
         <button type="button" class="btn" id="btn-export-srt"${cues.length ? "" : " disabled"}>Export SRT</button>
-        <span class="muted">${cues.length} cues · ${escapeHtml(preset.name)}</span>
+        <span class="muted">${cues.length} cues · ${escapeHtml(style.name)} · ${
+          wordsValue === "phrase" ? "phrase" : `${wordsValue} word${wordsValue === "1" ? "" : "s"}`
+        }</span>
       </div>
       <div class="preset-grid">${cards}</div>
-      <p class="muted">${escapeHtml(preset.animationNote || "")}</p>
-      <div class="caption-stage aspect-${preset.previewAspect === "9:16" ? "vertical" : "wide"}">
-        <div class="caption-line ${posClass}" style="${previewStyle}">${escapeHtml(sample)}</div>
+      <div class="caption-controls">
+        <div>
+          <span class="control-label">Words on screen</span>
+          <div class="seg" role="group" aria-label="Words on screen">
+            <button type="button" class="btn${wordsValue === "1" ? " selected" : ""}" data-words-per-cue="1">1 word</button>
+            <button type="button" class="btn${wordsValue === "2" ? " selected" : ""}" data-words-per-cue="2">2 words</button>
+            <button type="button" class="btn${wordsValue === "phrase" ? " selected" : ""}" data-words-per-cue="phrase">Phrase</button>
+          </div>
+          <input type="hidden" name="captionWordsPerCue" value="${escapeHtml(wordsValue)}" />
+          <input type="hidden" name="captionPresetId" value="${escapeHtml(style.id)}" />
+        </div>
+        <div class="row-fields">
+          <label>Font
+            <select name="captionFontFamily">${fontOptions}</select>
+          </label>
+          <label class="color-field">Text color
+            <input name="captionColor" type="color" value="${escapeHtml(style.color || "#FFFFFF")}" />
+          </label>
+          <label class="color-field">Outline
+            <input name="captionOutlineColor" type="color" value="${escapeHtml(style.outlineColor || "#000000")}" />
+          </label>
+        </div>
+      </div>
+      <p class="muted">${escapeHtml(style.animationNote || "")} Premiere cannot scale or bounce caption-track text. 1–2 word cues use Whisper word times; the pop you see below is preview-only.</p>
+      <div class="caption-stage aspect-${style.previewAspect === "9:16" ? "vertical" : "wide"}">
+        <div class="caption-line ${posClass}" style="${previewStyle}"><span class="caption-pop${motion ? " is-on" : ""}">${escapeHtml(sample)}</span></div>
       </div>
       <div class="cues">${list || "<p class='empty'>No caption cues yet. Transcribe first.</p>"}${extra}</div>
       <textarea class="srt-preview" readonly>${escapeHtml(srt)}</textarea>
+      </form>
     `);
   }
 
@@ -843,21 +921,9 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         </label>
         <label class="check">
           <input name="includeSpeakerInCaptions" type="checkbox"${s.includeSpeakerInCaptions ? " checked" : ""} />
-          Include speaker names in captions
+          Include speaker names in phrase captions
         </label>
-        <label>Caption style preset
-          <select name="captionPresetId">
-            ${(captionStyles.listPresets ? captionStyles.listPresets() : [])
-              .map(
-                (preset) =>
-                  `<option value="${escapeHtml(preset.id)}"${
-                    preset.id === s.captionPresetId ? " selected" : ""
-                  }>${escapeHtml(preset.name)}</option>`
-              )
-              .join("")}
-          </select>
-        </label>
-        <p class="muted">Presets control font, color, position, and cue timing when you Add captions to sequence. Premiere UXP caption tracks are static — karaoke/pop are timing approximations, not After Effects motion.</p>
+        <p class="muted">Caption look, words on screen, font, and colors live on the <strong>Captions</strong> tab. Phrase captions can include speaker names (1–2 word cues never do). Premiere caption tracks cannot pop or bounce — that motion is preview-only.</p>
         <p class="muted">Provider and other options save as you change them. Use Save settings after pasting an API key.</p>
         <button type="submit" class="btn primary">Save settings</button>
       </form>
@@ -982,6 +1048,23 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     root.querySelectorAll("[data-caption-preset]").forEach((button) => {
       button.addEventListener("click", () => selectCaptionPreset(button.getAttribute("data-caption-preset")));
     });
+    root.querySelectorAll("[data-words-per-cue]").forEach((button) => {
+      button.addEventListener("click", () =>
+        saveCaptionStyle({ captionWordsPerCue: button.getAttribute("data-words-per-cue") })
+      );
+    });
+    const captionsForm = root.querySelector("#captions-form");
+    if (captionsForm) {
+      captionsForm.addEventListener("submit", (event) => event.preventDefault());
+      captionsForm.addEventListener("change", async (event) => {
+        const target = event.target;
+        const name = target && target.name;
+        if (!name) return;
+        const data = {};
+        data[name] = target.value;
+        await saveCaptionStyle(data);
+      });
+    }
     const search = root.querySelector("#search");
     if (search) {
       search.addEventListener("keydown", (event) => {
@@ -1115,6 +1198,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     applyToSequence,
     addCaptionsToSequence,
     selectCaptionPreset,
+    saveCaptionStyle,
     exportSrt,
     saveSettings,
     persistFormSettings,

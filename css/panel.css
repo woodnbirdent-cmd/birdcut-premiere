@@ -254,6 +254,65 @@ textarea {
   bottom: 10%;
 }
 
+.caption-pop {
+  display: inline-block;
+}
+
+.caption-pop.is-on {
+  animation: birdcut-pop 0.38s cubic-bezier(0.2, 1.4, 0.3, 1);
+}
+
+@keyframes birdcut-pop {
+  0% { transform: scale(0.62); opacity: 0; }
+  58% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.caption-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.control-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.seg .btn.selected,
+.btn.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.row-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.color-field {
+  flex-direction: column;
+}
+
+.captions-form input[type="color"] {
+  width: 100%;
+  min-height: 28px;
+  padding: 2px;
+}
+
 .btn:disabled,
 .tab:disabled {
   opacity: 0.45;
@@ -397,15 +456,17 @@ textarea {
 }
 
 .settings label,
-.check {
+.captions-form label {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .check {
+  display: flex;
   flex-direction: row;
   align-items: center;
+  gap: 4px;
 }
 
 .settings textarea,

@@ -37,10 +37,11 @@ describe("caption style presets", () => {
       assert.ok(["phrase", "word"].includes(preset.cueMode));
     });
     assert.equal(styles.getPreset("missing").id, styles.DEFAULT_PRESET_ID);
-    assert.equal(styles.getPreset("karaoke").animation, "karaoke");
+    assert.equal(styles.getPreset("karaoke").wordsPerCue, "1");
+    assert.equal(styles.getPreset("pop").wordsPerCue, "2");
   });
 
-  it("keeps captionPresetId in persisted settings", () => {
+  it("keeps captionPresetId and word/font overrides in persisted settings", () => {
     const memory = {};
     const storage = {
       getItem(key) {
@@ -51,10 +52,19 @@ describe("caption style presets", () => {
       }
     };
     const store = settings.createSettingsStore(storage);
-    return store.save({ captionPresetId: "karaoke" }).then((snap) => {
-      assert.equal(snap.captionPresetId, "karaoke");
-      assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).captionPresetId, "karaoke");
-    });
+    return store
+      .save({
+        captionPresetId: "karaoke",
+        captionWordsPerCue: "2",
+        captionFontFamily: "Impact",
+        captionColor: "#FFCC00"
+      })
+      .then((snap) => {
+        assert.equal(snap.captionPresetId, "karaoke");
+        assert.equal(snap.captionWordsPerCue, "2");
+        assert.equal(snap.captionFontFamily, "Impact");
+        assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).captionColor, "#FFCC00");
+      });
   });
 
   it("emits one cue per word for karaoke and styled SRT/TTML", () => {
@@ -69,6 +79,36 @@ describe("caption style presets", () => {
     assert.match(payload.ttml, /Arial/);
     assert.match(payload.ttml, /#FFE566/i);
     assert.match(payload.ttml, /tts:origin/);
+  });
+
+  it("groups two words per cue from word timestamps", () => {
+    const payload = captions.buildCaptionExport(transcript, {
+      includeSpeakers: false,
+      presetId: "pop",
+      wordsPerCue: "2"
+    });
+    assert.equal(payload.cueCount, 2);
+    assert.equal(payload.cues[0].text, "Hello there.");
+    assert.equal(payload.cues[0].startMs, 0);
+    assert.equal(payload.cues[0].endMs, 900);
+    assert.equal(payload.cues[1].text, "Hi Alex.");
+    assert.equal(payload.cues[1].startMs, 2000);
+  });
+
+  it("applies custom font and color overrides in SRT/TTML", () => {
+    const payload = captions.buildCaptionExport(transcript, {
+      includeSpeakers: false,
+      presetId: "karaoke",
+      wordsPerCue: "1",
+      fontFamily: "Impact",
+      color: "#FF3300",
+      outlineColor: "#00FF00"
+    });
+    assert.equal(payload.cues[0].text, "Hello");
+    assert.match(payload.srt, /#FF3300/i);
+    assert.match(payload.ttml, /Impact/);
+    assert.match(payload.ttml, /#FF3300/i);
+    assert.match(payload.ttml, /#00FF00/i);
   });
 
   it("keeps phrase cues for subtitle box and includes a background in TTML", () => {

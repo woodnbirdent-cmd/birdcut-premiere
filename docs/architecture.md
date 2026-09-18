@@ -70,7 +70,7 @@ Save writes the draft into the transcript (and therefore the cut plan). Discard 
 
 ## Captions
 
-**Add captions to sequence** is independent of the cut plan. It uses the current caption style preset (`captionPresetId` in settings), builds SRT + TTML from active (non-deleted) words, and asks the Premiere host to import/insert that file. Caption style cards live on the Captions tab.
+**Add captions to sequence** is independent of the cut plan. The **Captions** tab owns preset, words-on-screen (1 / 2 / phrase), font, and colors (`captionPresetId`, `captionWordsPerCue`, `captionFontFamily`, `captionColor`, `captionOutlineColor`). Karaoke defaults to 1 word; Pop defaults to 2. Cues are built from word timestamps. Premiere caption tracks cannot keyframe a pop; the panel preview can.
 
 ## Out of scope (roadmap)
 

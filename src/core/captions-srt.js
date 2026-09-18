@@ -35,6 +35,7 @@ const DEFAULT_OPTIONS = {
   minDurationMs: 700,
   includeSpeakers: true,
   cueMode: "phrase",
+  wordsPerCue: "phrase",
   preset: null
 };
 
@@ -44,27 +45,47 @@ function captionWords(transcript) {
 
 function resolveOptions(options) {
   const raw = options || {};
-  const preset =
-    raw.preset && typeof raw.preset === "object"
-      ? raw.preset
-      : stylesApi().getPreset
-        ? stylesApi().getPreset(raw.presetId || raw.captionPresetId)
-        : null;
-  const cueMode = raw.cueMode || (preset && preset.cueMode) || DEFAULT_OPTIONS.cueMode;
+  const styles = stylesApi();
+  const merged =
+    styles.mergeStyle && (raw.preset || raw.presetId || raw.captionPresetId)
+      ? styles.mergeStyle(raw.preset || raw.presetId || raw.captionPresetId, {
+          fontFamily: raw.fontFamily,
+          color: raw.color,
+          outlineColor: raw.outlineColor,
+          wordsPerCue: raw.wordsPerCue
+        })
+      : raw.preset && typeof raw.preset === "object"
+        ? raw.preset
+        : styles.getPreset
+          ? styles.getPreset(raw.presetId || raw.captionPresetId)
+          : null;
+  const wordsPerCue = styles.normalizeWordsPerCue
+    ? styles.normalizeWordsPerCue(
+        raw.wordsPerCue != null && raw.wordsPerCue !== ""
+          ? raw.wordsPerCue
+          : merged && merged.wordsPerCue,
+        (merged && merged.wordsPerCue) || (raw.cueMode === "word" ? "1" : "phrase")
+      )
+    : raw.wordsPerCue || (raw.cueMode === "word" ? "1" : "phrase");
+  const cueMode = wordsPerCue === "phrase" ? "phrase" : "word";
   return {
     ...DEFAULT_OPTIONS,
     ...raw,
-    preset,
+    preset: merged,
+    wordsPerCue,
     cueMode,
-    maxChars: raw.maxChars != null ? raw.maxChars : (preset && preset.maxChars) || DEFAULT_OPTIONS.maxChars,
+    fontFamily: (merged && merged.fontFamily) || raw.fontFamily,
+    color: (merged && merged.color) || raw.color,
+    outlineColor: (merged && merged.outlineColor) || raw.outlineColor,
+    maxChars: raw.maxChars != null ? raw.maxChars : (merged && merged.maxChars) || DEFAULT_OPTIONS.maxChars,
     maxDurationMs:
       raw.maxDurationMs != null
         ? raw.maxDurationMs
-        : (preset && preset.maxDurationMs) || DEFAULT_OPTIONS.maxDurationMs,
+        : (merged && merged.maxDurationMs) || DEFAULT_OPTIONS.maxDurationMs,
     minDurationMs:
       raw.minDurationMs != null
         ? raw.minDurationMs
-        : (preset && preset.minDurationMs) || DEFAULT_OPTIONS.minDurationMs
+        : (merged && merged.minDurationMs) || DEFAULT_OPTIONS.minDurationMs
   };
 }
 
@@ -112,17 +133,43 @@ function makeCue(transcript, current, opts) {
   };
 }
 
+function cueEndFromWords(group, nextStartMs, minDurationMs) {
+  const startMs = group[0].startMs;
+  let endMs = group[group.length - 1].endMs;
+  const floor = Math.max(80, Number(minDurationMs) || 0);
+  if (endMs < startMs + floor) endMs = startMs + floor;
+  if (nextStartMs != null && nextStartMs > startMs && endMs > nextStartMs) {
+    endMs = Math.max(startMs + 80, nextStartMs);
+  }
+  return endMs;
+}
+
+function cuesFromWordChunks(words, chunkSize, opts) {
+  const size = Math.max(1, Number(chunkSize) || 1);
+  const groups = [];
+  for (let i = 0; i < words.length; i += size) {
+    groups.push(words.slice(i, i + size));
+  }
+  return groups.map((group, index) => {
+    const next = groups[index + 1];
+    return {
+      startMs: group[0].startMs,
+      endMs: cueEndFromWords(group, next ? next[0].startMs : null, opts.minDurationMs),
+      text: group.map((word) => word.text).join(" "),
+      speakerId: group[0].speakerId || null,
+      words: group.slice()
+    };
+  });
+}
+
 function transcriptToCues(transcript, options) {
   const opts = resolveOptions(options);
   const words = captionWords(transcript);
-  if (opts.cueMode === "word") {
-    return words.map((word) => ({
-      startMs: word.startMs,
-      endMs: Math.max(word.endMs, word.startMs + opts.minDurationMs),
-      text: word.text,
-      speakerId: word.speakerId || null,
-      words: [word]
-    }));
+  if (opts.wordsPerCue === "1") {
+    return cuesFromWordChunks(words, 1, opts);
+  }
+  if (opts.wordsPerCue === "2") {
+    return cuesFromWordChunks(words, 2, opts);
   }
 
   const cues = [];
@@ -281,7 +328,8 @@ function buildCaptionExport(transcript, options) {
     srtPlain: cuesToSrt(cues, { ...opts, styleSrt: false, preset: null }),
     ttml: cuesToTtml(cues, opts),
     wordCount: captionWords(transcript).length,
-    cueCount: cues.length
+    cueCount: cues.length,
+    wordsPerCue: opts.wordsPerCue
   };
 }
 
@@ -290,6 +338,7 @@ const api = {
   captionWords,
   resolveOptions,
   transcriptToCues,
+  cuesFromWordChunks,
   cuesToSrt,
   cuesToTtml,
   transcriptToSrt,

@@ -37,7 +37,11 @@ const DEFAULT_SETTINGS = {
   includeSpeakerInCaptions: true,
   transcribeSource: "sequence",
   audioPresetPath: "",
-  captionPresetId: "clean-lower-third"
+  captionPresetId: "clean-lower-third",
+  captionWordsPerCue: "",
+  captionFontFamily: "",
+  captionColor: "",
+  captionOutlineColor: ""
 };
 
 function isWhisperLike(provider) {
@@ -79,7 +83,13 @@ function normalizeSettings(raw) {
         : Boolean(input.includeSpeakerInCaptions),
     transcribeSource: input.transcribeSource === "clip" ? "clip" : "sequence",
     audioPresetPath: String(input.audioPresetPath || "").trim(),
-    captionPresetId: String(input.captionPresetId || DEFAULT_SETTINGS.captionPresetId).trim() || DEFAULT_SETTINGS.captionPresetId
+    captionPresetId: String(input.captionPresetId || DEFAULT_SETTINGS.captionPresetId).trim() || DEFAULT_SETTINGS.captionPresetId,
+    captionWordsPerCue: ["1", "2", "phrase"].indexOf(String(input.captionWordsPerCue || "")) >= 0
+      ? String(input.captionWordsPerCue)
+      : DEFAULT_SETTINGS.captionWordsPerCue,
+    captionFontFamily: String(input.captionFontFamily || "").trim(),
+    captionColor: String(input.captionColor || "").trim(),
+    captionOutlineColor: String(input.captionOutlineColor || "").trim()
   };
 }
 
