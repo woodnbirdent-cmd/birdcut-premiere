@@ -58,7 +58,7 @@ async function bootPreview() {
       return {
         ok: true,
         applied: false,
-        message: `Preview: would add ${cues} caption cue(s) (${style}) to the sequence. Load BirdCut in Premiere to import the SRT.`
+        message: `Preview: would add ${cues} caption cue(s) (${style}) to the sequence. Load BirdCut in Premiere to import the styled TTML.`
       };
     },
     async captureAudio({ source, onProgress }) {

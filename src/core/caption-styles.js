@@ -18,6 +18,45 @@ const SYSTEM_FONTS = [
 
 const WORDS_PER_CUE_VALUES = ["1", "2", "phrase"];
 
+const COLOR_SWATCHES = [
+  { hex: "#FFFFFF", label: "White" },
+  { hex: "#FFE566", label: "Yellow" },
+  { hex: "#FFCC00", label: "Gold" },
+  { hex: "#7C9CFF", label: "Blue" },
+  { hex: "#6EE7B7", label: "Mint" },
+  { hex: "#FF3B7A", label: "Pink" },
+  { hex: "#FF3300", label: "Red" },
+  { hex: "#000000", label: "Black" }
+];
+
+const OUTLINE_SWATCHES = [
+  { hex: "#000000", label: "Black" },
+  { hex: "#111111", label: "Ink" },
+  { hex: "#FFFFFF", label: "White" },
+  { hex: "#FF3B7A", label: "Pink" }
+];
+
+const ANIMATION_FEELS = [
+  {
+    id: "none",
+    label: "None",
+    wordsPerCue: "phrase",
+    description: "Look only — phrase-length cues, no pop timing."
+  },
+  {
+    id: "karaoke",
+    label: "Karaoke",
+    wordsPerCue: "1",
+    description: "1 word on screen from Whisper times. Not an in-line highlight."
+  },
+  {
+    id: "pop",
+    label: "Pop",
+    wordsPerCue: "2",
+    description: "2 words on screen, snappy in/out. Timeline cannot scale."
+  }
+];
+
 /**
  * Named looks the Captions pane can apply.
  * Premiere UXP cannot drive After Effects–style motion on a caption track, so
@@ -28,7 +67,8 @@ const CAPTION_PRESETS = [
   {
     id: "clean-lower-third",
     name: "Clean Lower Third",
-    description: "White Arial along the bottom third, thin outline.",
+    kind: "look",
+    description: "Look: white Arial, bottom third, thin outline.",
     fontFamily: "Arial",
     fontSize: 42,
     fontWeight: "600",
@@ -52,7 +92,8 @@ const CAPTION_PRESETS = [
   {
     id: "bold-center",
     name: "Bold Center",
-    description: "Large centered title-style captions.",
+    kind: "look",
+    description: "Look: large centered title-style captions.",
     fontFamily: "Arial Black",
     fontSize: 64,
     fontWeight: "800",
@@ -76,7 +117,8 @@ const CAPTION_PRESETS = [
   {
     id: "karaoke",
     name: "Karaoke",
-    description: "Word-timed yellow captions (one word at a time).",
+    kind: "timing",
+    description: "Timing: 1 word on screen. Look: yellow Arial.",
     fontFamily: "Arial",
     fontSize: 56,
     fontWeight: "700",
@@ -101,7 +143,8 @@ const CAPTION_PRESETS = [
   {
     id: "pop",
     name: "Pop",
-    description: "Short punchy phrases, large type.",
+    kind: "timing",
+    description: "Timing: 2 words on screen. Look: large white type, pink outline.",
     fontFamily: "Arial Black",
     fontSize: 58,
     fontWeight: "800",
@@ -126,7 +169,8 @@ const CAPTION_PRESETS = [
   {
     id: "subtitle-box",
     name: "Subtitle box",
-    description: "White type on a semi-transparent bar.",
+    kind: "look",
+    description: "Look: white type on a semi-transparent bar.",
     fontFamily: "Arial",
     fontSize: 36,
     fontWeight: "500",
@@ -150,7 +194,8 @@ const CAPTION_PRESETS = [
   {
     id: "social-vertical",
     name: "Social vertical-safe",
-    description: "Larger type, extra bottom margin for 9:16.",
+    kind: "look",
+    description: "Look: larger type, extra bottom margin for 9:16.",
     fontFamily: "Arial",
     fontSize: 68,
     fontWeight: "800",
@@ -174,7 +219,25 @@ const CAPTION_PRESETS = [
 ];
 
 function listPresets() {
-  return CAPTION_PRESETS.slice();
+  const list = CAPTION_PRESETS.slice();
+  if (list.length) return list;
+  return [
+    {
+      id: DEFAULT_PRESET_ID,
+      name: "Clean Lower Third",
+      kind: "look",
+      description: "Look: white Arial, bottom third.",
+      fontFamily: "Arial",
+      fontSize: 42,
+      color: "#FFFFFF",
+      outlineColor: "#000000",
+      outlineWidth: 2,
+      alignment: "center",
+      verticalPosition: "bottom",
+      wordsPerCue: "phrase",
+      animation: "none"
+    }
+  ];
 }
 
 function getPreset(id) {
@@ -190,7 +253,24 @@ function listFonts(extra) {
   const fonts = SYSTEM_FONTS.slice();
   const add = String(extra || "").trim();
   if (add && fonts.indexOf(add) < 0) fonts.unshift(add);
-  return fonts;
+  return fonts.length ? fonts : ["Arial"];
+}
+
+function listColorSwatches() {
+  return COLOR_SWATCHES.slice();
+}
+
+function listOutlineSwatches() {
+  return OUTLINE_SWATCHES.slice();
+}
+
+function listAnimationFeels() {
+  return ANIMATION_FEELS.slice();
+}
+
+function animationFeelFor(id, fallback) {
+  const match = ANIMATION_FEELS.find((item) => item.id === id);
+  return match || ANIMATION_FEELS.find((item) => item.id === fallback) || ANIMATION_FEELS[0];
 }
 
 function normalizeWordsPerCue(value, fallback) {
@@ -203,10 +283,11 @@ function normalizeWordsPerCue(value, fallback) {
 function normalizeHexColor(value, fallback) {
   const raw = String(value || "").trim();
   if (/^#[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.slice(1).toUpperCase()}`;
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toUpperCase()}`;
   if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
     return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`.toUpperCase();
   }
-  return fallback || "#FFFFFF";
+  return fallback || "";
 }
 
 function mergeStyle(presetOrId, overrides) {
@@ -216,13 +297,18 @@ function mergeStyle(presetOrId, overrides) {
     o.wordsPerCue != null && o.wordsPerCue !== "" ? o.wordsPerCue : base.wordsPerCue,
     base.wordsPerCue || "phrase"
   );
+  const animation = String(o.animation || base.animation || "none");
   return {
     ...base,
     fontFamily: String(o.fontFamily || base.fontFamily || "Arial"),
-    color: o.color ? normalizeHexColor(o.color, base.color) : base.color,
-    outlineColor: o.outlineColor ? normalizeHexColor(o.outlineColor, base.outlineColor) : base.outlineColor,
+    color: o.color ? normalizeHexColor(o.color, base.color) || base.color : base.color,
+    outlineColor: o.outlineColor
+      ? normalizeHexColor(o.outlineColor, base.outlineColor) || base.outlineColor
+      : base.outlineColor,
     wordsPerCue,
-    cueMode: wordsPerCue === "phrase" ? "phrase" : "word"
+    cueMode: wordsPerCue === "phrase" ? "phrase" : "word",
+    animation,
+    uppercase: o.uppercase == null ? Boolean(base.uppercase) : Boolean(o.uppercase)
   };
 }
 
@@ -270,10 +356,17 @@ const api = {
   CAPTION_PRESETS,
   SYSTEM_FONTS,
   WORDS_PER_CUE_VALUES,
+  COLOR_SWATCHES,
+  OUTLINE_SWATCHES,
+  ANIMATION_FEELS,
   listPresets,
   getPreset,
   isKnownPresetId,
   listFonts,
+  listColorSwatches,
+  listOutlineSwatches,
+  listAnimationFeels,
+  animationFeelFor,
   normalizeWordsPerCue,
   normalizeHexColor,
   mergeStyle,

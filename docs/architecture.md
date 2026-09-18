@@ -70,7 +70,7 @@ Save writes the draft into the transcript (and therefore the cut plan). Discard 
 
 ## Captions
 
-**Add captions to sequence** is independent of the cut plan. The **Captions** tab owns preset, words-on-screen (1 / 2 / phrase), font, and colors (`captionPresetId`, `captionWordsPerCue`, `captionFontFamily`, `captionColor`, `captionOutlineColor`). Karaoke defaults to 1 word; Pop defaults to 2. Cues are built from word timestamps. Premiere caption tracks cannot keyframe a pop; the panel preview can.
+**Add captions to sequence** is independent of the cut plan. The **Captions** tab owns style presets, animation feel, words-on-screen, ALL CAPS, font, and colors (`captionPresetId`, `captionAnimationFeel`, `captionWordsPerCue`, `captionUppercase`, `captionFontFamily`, `captionColor`, `captionOutlineColor`). Color is swatches + hex (UXP `input type="color"` is skipped). Karaoke defaults to 1 word; Pop to 2. Cues are built from word timestamps. Premiere caption tracks cannot keyframe a pop; the panel preview can. Font/color go into TTML (`.ttml`) and SRT tags; Premiere often ignores SRT styles. ALL CAPS is the letters themselves.
 
 ## Out of scope (roadmap)
 

@@ -108,14 +108,14 @@ To transcribe **your** sequence or clip with Whisper:
 4. In Terminal (leave it running): `cd sidecar/local-whisper && ./start.sh`
 5. Settings → **Local Whisper (on this Mac)** (sticks immediately; no OpenAI key).
 6. Confirm `.epr` (e.g. `BirdCut Audio MP3.epr`) → **Transcribe sequence**.
-7. After words load, open **Captions**: pick Karaoke or Pop, set **1 word** or **2 words**, then **Add captions to sequence**.
+7. After words load, open **Captions**: pick a **Style preset**, set **Animation feel** / **1 word** / **2 words**, optionally **ALL CAPS**, font, and color **swatches** (or hex), then **Add captions to sequence**.
 8. If the top bar says **Start the Local Whisper sidecar**, the Python server is not up. Confirm `curl -s http://127.0.0.1:8090/health`. If a pane still does not scroll, Unload → Load once more.
 
 ## First run (editing)
 
 1. On **Transcript**: search, click words (Shift for a range), **Delete**, **Undo** / **Redo**.
 2. **Trim**: preview silence / fillers / retakes / shortform. **Save draft** or **Discard**.
-3. **Captions**: pick a style, set **1 word / 2 words / Phrase**, font, and colors, then **Add captions to sequence**. That action does **not** need deleted words. **Export SRT** remains available.
+3. **Captions**: pick a **Style preset**, set **Animation feel**, **1 word / 2 words / Phrase**, **ALL CAPS**, font, and color swatches, then **Add captions to sequence**. That action does **not** need deleted words. **Export SRT** remains available.
 4. **Apply cuts** — only for ranges you marked for deletion. Save the project first. See `docs/premiere-api-limits.md`.
 
 ## Add captions + styles
@@ -124,11 +124,13 @@ After a successful transcribe, the primary next step is **Add captions to sequen
 
 ### Captions tab (owns the look)
 
-Style, **words on screen**, font, and colors live on **Captions**, not Settings. Settings only keeps speaker names for phrase captions.
+Style, **animation feel**, **words on screen**, **ALL CAPS**, font, and colors live on **Captions**, not Settings. Settings only keeps speaker names for phrase captions.
 
-- **Presets**: Clean Lower Third, Bold Center, Karaoke, Pop, Subtitle box, Social vertical-safe
-- **Words on screen**: **1 word**, **2 words**, or **Phrase**. Karaoke defaults to 1; Pop defaults to 2. Timing comes from Whisper/Adobe **word timestamps** when the transcript has them.
-- **Font + color**: system-safe font list, text color, outline color. Live preview updates in the panel. Choices persist with the preset as overrides.
+- **Style presets** (labeled, above the cue list): Clean Lower Third, Bold Center, Karaoke, Pop, Subtitle box, Social vertical-safe. Cards tagged **Look** vs **Timing + look**.
+- **Animation feel**: **None** (phrase), **Karaoke** (1 word), **Pop** (2 words). Tied to words-on-screen defaults; you can still override 1 / 2 / Phrase.
+- **Words on screen**: **1 word**, **2 words**, or **Phrase**. Timing comes from Whisper/Adobe **word timestamps**.
+- **ALL CAPS**: forces uppercase letters in the preview, SRT, TTML, and the sequence import. This is the one “style” Premiere cannot strip, because it is the cue text.
+- **Font + color**: system-safe `<select>` for font. Premiere UXP’s `input type="color"` is unreliable, so BirdCut uses **swatch buttons + hex fields**. Live preview updates in the panel. Choices persist with the preset as overrides.
 
 ### Animation limits (honest)
 
@@ -137,16 +139,19 @@ Premiere UXP still has **no** caption-track keyframes, **no** MOGRT source-text 
 What we *can* do:
 
 - Short **1–2 word** cues with snappy in/out from word times (the “words pop on” feel)
-- Styled SRT (`{\an}` + font color) and TTML (font, color, outline, region)
+- Styled **TTML** (font, color, outline, region) imported as `.ttml`, plus SRT with `<font face>` / color tags
 - A **panel-only** scale pop in the Captions preview so you can judge the look
+- **ALL CAPS** as real uppercase letters in the file
 
 Karaoke is sequential word cues, not a highlight inside a full line.
 
 ### What Premiere actually receives
 
-BirdCut writes a styled `.srt` (and a TTML `.xml`) to the plugin temp folder, `project.importFiles`s it, then tries `SequenceEditor.createInsertProjectItemAction` on the imported item. If insert does not create a caption track, the file is still in the Project panel — drag it onto the sequence.
+BirdCut writes a styled `.ttml` (preferred) and a `.srt` to the plugin temp folder, `project.importFiles`s the TTML first, then tries `SequenceEditor.createInsertProjectItemAction`. If insert does not create a caption track, drag the **`.ttml`** (not only the SRT) from the Project panel onto the sequence.
 
-Reload after this change: UXP Developer Tool → BirdCut → **Unload** → **Load**, then Window → UXP Plugins → BirdCut.
+**Font/color on the timeline are not guaranteed.** Premiere’s SRT importer usually ignores font/color and uses its default caption look. TTML carries the styles; some Premiere builds still strip them after import. The status line says so. **ALL CAPS** and **1–2 word timing** are in the cue text/times, so those still show.
+
+Reload after this change: UXP Developer Tool → BirdCut → **Unload** → **Load**, then Window → UXP Plugins → BirdCut. Do not keep an older copy of the folder loaded from Downloads if you also pulled `main`.
 
 ## Transcript JSON
 

@@ -52,7 +52,9 @@ function resolveOptions(options) {
           fontFamily: raw.fontFamily,
           color: raw.color,
           outlineColor: raw.outlineColor,
-          wordsPerCue: raw.wordsPerCue
+          wordsPerCue: raw.wordsPerCue,
+          animation: raw.animation,
+          uppercase: raw.uppercase
         })
       : raw.preset && typeof raw.preset === "object"
         ? raw.preset
@@ -77,6 +79,8 @@ function resolveOptions(options) {
     fontFamily: (merged && merged.fontFamily) || raw.fontFamily,
     color: (merged && merged.color) || raw.color,
     outlineColor: (merged && merged.outlineColor) || raw.outlineColor,
+    uppercase: raw.uppercase == null ? Boolean(merged && merged.uppercase) : Boolean(raw.uppercase),
+    animation: raw.animation || (merged && merged.animation) || "none",
     maxChars: raw.maxChars != null ? raw.maxChars : (merged && merged.maxChars) || DEFAULT_OPTIONS.maxChars,
     maxDurationMs:
       raw.maxDurationMs != null
@@ -97,6 +101,12 @@ function shouldStartNewCue(current, word, options) {
   if (duration > options.maxDurationMs) return true;
   if (nextText.length > options.maxChars * options.maxLines) return true;
   return false;
+}
+
+function applyCueCasing(text, opts) {
+  const value = String(text == null ? "" : text);
+  if (opts && opts.uppercase) return value.toUpperCase();
+  return value;
 }
 
 function wrapCueText(text, maxChars, maxLines) {
@@ -122,7 +132,7 @@ function makeCue(transcript, current, opts) {
   const speaker = (transcript.speakers || []).find((item) => item.id === current.speakerId);
   const includeSpeakers = opts.includeSpeakers && opts.cueMode !== "word";
   const prefix = includeSpeakers && speaker ? `${speaker.label}: ` : "";
-  const text = wrapCueText(prefix + body, opts.maxChars, opts.maxLines);
+  const text = applyCueCasing(wrapCueText(prefix + body, opts.maxChars, opts.maxLines), opts);
   const endMs = Math.max(current.endMs, current.startMs + opts.minDurationMs);
   return {
     startMs: current.startMs,
@@ -155,7 +165,7 @@ function cuesFromWordChunks(words, chunkSize, opts) {
     return {
       startMs: group[0].startMs,
       endMs: cueEndFromWords(group, next ? next[0].startMs : null, opts.minDurationMs),
-      text: group.map((word) => word.text).join(" "),
+      text: applyCueCasing(group.map((word) => word.text).join(" "), opts),
       speakerId: group[0].speakerId || null,
       words: group.slice()
     };
@@ -220,7 +230,10 @@ function styleSrtText(text, preset) {
   if (!preset) return text;
   const align = stylesApi().srtAlignTag ? stylesApi().srtAlignTag(preset) : "";
   const color = String(preset.color || "#FFFFFF").replace("#", "");
-  const lines = String(text).split("\n").map((line) => `<font color="#${color}">${line}</font>`);
+  const face = String(preset.fontFamily || "Arial").replace(/"/g, "");
+  const lines = String(text)
+    .split("\n")
+    .map((line) => `<font face="${face}" color="#${color}">${line}</font>`);
   return `${align}${lines.join("\n")}`;
 }
 
@@ -329,7 +342,16 @@ function buildCaptionExport(transcript, options) {
     ttml: cuesToTtml(cues, opts),
     wordCount: captionWords(transcript).length,
     cueCount: cues.length,
-    wordsPerCue: opts.wordsPerCue
+    wordsPerCue: opts.wordsPerCue,
+    uppercase: Boolean(opts.uppercase),
+    styleHint: [
+      `TTML includes font ${preset.fontFamily || "Arial"}, color ${preset.color || "#FFFFFF"}, outline ${preset.outlineColor || "#000000"}.`,
+      "Premiere’s SRT importer usually ignores font/color and uses its default caption look.",
+      "If the timeline still looks like basic white text after a TTML import, Premiere stripped file styles — timing and ALL CAPS still apply because they are the cue letters.",
+      opts.uppercase ? "Cue text is ALL CAPS." : ""
+    ]
+      .filter(Boolean)
+      .join(" ")
   };
 }
 
@@ -345,6 +367,7 @@ const api = {
   transcriptToTtml,
   buildCaptionExport,
   styleSrtText,
+  applyCueCasing,
   formatTtmlTime
 };
 

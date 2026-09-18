@@ -1,6 +1,6 @@
 {
   "name": "birdcut-premiere",
-  "version": "0.4.0",
+    "version": "0.5.0",
   "description": "BirdCut — text-based editing panel for Adobe Premiere Pro (UXP)",
   "private": true,
   "license": "MIT",

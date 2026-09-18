@@ -52,10 +52,13 @@ describe("apply captions to sequence", () => {
     const importedPaths = [];
     const actions = [];
     let captionCount = 0;
-    const srtItem = { name: "birdcut-captions-1.srt", guid: "cap-1" };
+    const srtItem = { name: "birdcut-captions-1.srt", guid: "cap-srt" };
+    const ttmlItem = { name: "birdcut-captions-1.ttml", guid: "cap-ttml" };
     const root = {
       async getItems() {
-        return captionCount > 0 ? [{ name: "A-roll.mov", guid: "clip" }, srtItem] : [{ name: "A-roll.mov", guid: "clip" }];
+        return captionCount > 0
+          ? [{ name: "A-roll.mov", guid: "clip" }, ttmlItem, srtItem]
+          : [{ name: "A-roll.mov", guid: "clip" }];
       }
     };
     const sequence = {
@@ -141,15 +144,18 @@ describe("apply captions to sequence", () => {
       srt: "1\n00:00:00,000 --> 00:00:01,000\nHello\n",
       ttml: "<tt>Hello</tt>",
       cueCount: 1,
-      presetName: "Clean Lower Third"
+      presetName: "Clean Lower Third",
+      uppercase: true,
+      styleHint: "TTML includes font Impact."
     });
 
     assert.equal(result.ok, true);
     assert.equal(result.inserted, true);
-    assert.ok(written.length >= 1);
-    assert.ok(importedPaths.length >= 1);
-    assert.equal(actions[0].type, "insert");
-    assert.equal(actions[0].itemName, "birdcut-captions-1.srt");
+    assert.ok(written.some((file) => /\.ttml$/.test(file.name)));
+    assert.ok(written.some((file) => /\.srt$/.test(file.name)));
+    assert.ok(importedPaths[0].indexOf(".ttml") >= 0);
+    assert.ok(/\.ttml$/.test(actions[0].itemName) || actions[0].itemName === "birdcut-captions-1.ttml");
+    assert.match(result.message, /TTML|ALL CAPS|font\/color/i);
     assert.doesNotMatch(result.message, /deleted/i);
   });
 });

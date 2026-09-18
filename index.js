@@ -3,6 +3,8 @@
 const { createPanelController } = require("./src/ui/panel");
 const { createPremiereHost } = require("./src/premiere/host");
 const settingsApi = require("./src/core/settings");
+require("./src/core/caption-styles");
+require("./src/core/captions-srt");
 
 let mounted = false;
 

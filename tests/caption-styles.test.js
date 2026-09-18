@@ -39,6 +39,9 @@ describe("caption style presets", () => {
     assert.equal(styles.getPreset("missing").id, styles.DEFAULT_PRESET_ID);
     assert.equal(styles.getPreset("karaoke").wordsPerCue, "1");
     assert.equal(styles.getPreset("pop").wordsPerCue, "2");
+    assert.ok(styles.listColorSwatches().length >= 6);
+    assert.ok(styles.listAnimationFeels().some((item) => item.id === "karaoke"));
+    assert.ok(styles.listPresets().length >= 1);
   });
 
   it("keeps captionPresetId and word/font overrides in persisted settings", () => {
@@ -57,12 +60,14 @@ describe("caption style presets", () => {
         captionPresetId: "karaoke",
         captionWordsPerCue: "2",
         captionFontFamily: "Impact",
-        captionColor: "#FFCC00"
+        captionColor: "#FFCC00",
+        captionUppercase: true
       })
       .then((snap) => {
         assert.equal(snap.captionPresetId, "karaoke");
         assert.equal(snap.captionWordsPerCue, "2");
         assert.equal(snap.captionFontFamily, "Impact");
+        assert.equal(snap.captionUppercase, true);
         assert.equal(JSON.parse(memory[settings.STORAGE_KEY]).captionColor, "#FFCC00");
       });
   });
@@ -76,6 +81,7 @@ describe("caption style presets", () => {
     assert.equal(payload.cues[0].text, "Hello");
     assert.match(payload.srt, /\\an2/);
     assert.match(payload.srt, /#FFE566/i);
+    assert.match(payload.srt, /face="Arial"/);
     assert.match(payload.ttml, /Arial/);
     assert.match(payload.ttml, /#FFE566/i);
     assert.match(payload.ttml, /tts:origin/);
@@ -105,10 +111,24 @@ describe("caption style presets", () => {
       outlineColor: "#00FF00"
     });
     assert.equal(payload.cues[0].text, "Hello");
+    assert.match(payload.srt, /face="Impact"/);
     assert.match(payload.srt, /#FF3300/i);
     assert.match(payload.ttml, /Impact/);
     assert.match(payload.ttml, /#FF3300/i);
     assert.match(payload.ttml, /#00FF00/i);
+  });
+
+  it("forces ALL CAPS in cues, SRT, and TTML", () => {
+    const payload = captions.buildCaptionExport(transcript, {
+      includeSpeakers: false,
+      presetId: "karaoke",
+      uppercase: true
+    });
+    assert.equal(payload.cues[0].text, "HELLO");
+    assert.equal(payload.uppercase, true);
+    assert.match(payload.srt, />HELLO</);
+    assert.match(payload.ttml, />HELLO</);
+    assert.match(payload.styleHint, /ALL CAPS/i);
   });
 
   it("keeps phrase cues for subtitle box and includes a background in TTML", () => {
