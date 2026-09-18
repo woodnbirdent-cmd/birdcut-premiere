@@ -2,6 +2,22 @@
 (function (root) {
 const DEFAULT_PRESET_ID = "clean-lower-third";
 
+const SYSTEM_FONTS = [
+  "Arial",
+  "Arial Black",
+  "Helvetica",
+  "Georgia",
+  "Times New Roman",
+  "Courier New",
+  "Impact",
+  "Verdana",
+  "Trebuchet MS",
+  "Palatino",
+  "Comic Sans MS"
+];
+
+const WORDS_PER_CUE_VALUES = ["1", "2", "phrase"];
+
 /**
  * Named looks the Captions pane can apply.
  * Premiere UXP cannot drive After Effects–style motion on a caption track, so
@@ -25,6 +41,7 @@ const CAPTION_PRESETS = [
     background: null,
     safeMarginPct: 8,
     cueMode: "phrase",
+    wordsPerCue: "phrase",
     animation: "none",
     animationNote: "Static styled captions.",
     previewAspect: "16:9",
@@ -48,6 +65,7 @@ const CAPTION_PRESETS = [
     background: null,
     safeMarginPct: 10,
     cueMode: "phrase",
+    wordsPerCue: "phrase",
     animation: "none",
     animationNote: "Static styled captions.",
     previewAspect: "16:9",
@@ -71,13 +89,14 @@ const CAPTION_PRESETS = [
     background: null,
     safeMarginPct: 10,
     cueMode: "word",
+    wordsPerCue: "1",
     animation: "karaoke",
     animationNote:
-      "Premiere caption tracks cannot highlight a word inside a full line. BirdCut emits one cue per word as a karaoke approximation.",
+      "Premiere caption tracks cannot highlight a word inside a full line or keyframe a pop. BirdCut emits 1–2 word cues from Whisper timestamps; the panel preview can scale, the timeline cannot.",
     previewAspect: "16:9",
     maxChars: 24,
-    maxDurationMs: 1200,
-    minDurationMs: 180
+    maxDurationMs: 900,
+    minDurationMs: 100
   },
   {
     id: "pop",
@@ -94,14 +113,15 @@ const CAPTION_PRESETS = [
     verticalPosition: "middle",
     background: null,
     safeMarginPct: 12,
-    cueMode: "phrase",
+    cueMode: "word",
+    wordsPerCue: "2",
     animation: "pop",
     animationNote:
-      "Premiere cannot keyframe a pop/scale-in on caption tracks. Short, snappy cue timing approximates the look.",
+      "Premiere cannot keyframe a pop/scale-in on caption tracks. Two-word cues with snappy word timestamps approximate the look. Panel preview pops; the timeline does not.",
     previewAspect: "16:9",
     maxChars: 22,
-    maxDurationMs: 2200,
-    minDurationMs: 360
+    maxDurationMs: 1400,
+    minDurationMs: 140
   },
   {
     id: "subtitle-box",
@@ -119,6 +139,7 @@ const CAPTION_PRESETS = [
     background: { color: "#000000", opacity: 0.65, paddingPx: 10 },
     safeMarginPct: 8,
     cueMode: "phrase",
+    wordsPerCue: "phrase",
     animation: "none",
     animationNote: "Static captions with a background box in TTML; SRT may drop the box.",
     previewAspect: "16:9",
@@ -142,6 +163,7 @@ const CAPTION_PRESETS = [
     background: null,
     safeMarginPct: 16,
     cueMode: "phrase",
+    wordsPerCue: "phrase",
     animation: "none",
     animationNote: "Static styled captions with larger type and safer bottom margin.",
     previewAspect: "9:16",
@@ -162,6 +184,46 @@ function getPreset(id) {
 
 function isKnownPresetId(id) {
   return CAPTION_PRESETS.some((preset) => preset.id === id);
+}
+
+function listFonts(extra) {
+  const fonts = SYSTEM_FONTS.slice();
+  const add = String(extra || "").trim();
+  if (add && fonts.indexOf(add) < 0) fonts.unshift(add);
+  return fonts;
+}
+
+function normalizeWordsPerCue(value, fallback) {
+  const raw = String(value == null ? "" : value).trim().toLowerCase();
+  if (raw === "1" || raw === "2" || raw === "phrase") return raw;
+  if (raw === "word") return "1";
+  return fallback || "phrase";
+}
+
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.slice(1).toUpperCase()}`;
+  if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+    return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`.toUpperCase();
+  }
+  return fallback || "#FFFFFF";
+}
+
+function mergeStyle(presetOrId, overrides) {
+  const base = typeof presetOrId === "object" && presetOrId ? { ...getPreset(presetOrId.id), ...presetOrId } : getPreset(presetOrId);
+  const o = overrides && typeof overrides === "object" ? overrides : {};
+  const wordsPerCue = normalizeWordsPerCue(
+    o.wordsPerCue != null && o.wordsPerCue !== "" ? o.wordsPerCue : base.wordsPerCue,
+    base.wordsPerCue || "phrase"
+  );
+  return {
+    ...base,
+    fontFamily: String(o.fontFamily || base.fontFamily || "Arial"),
+    color: o.color ? normalizeHexColor(o.color, base.color) : base.color,
+    outlineColor: o.outlineColor ? normalizeHexColor(o.outlineColor, base.outlineColor) : base.outlineColor,
+    wordsPerCue,
+    cueMode: wordsPerCue === "phrase" ? "phrase" : "word"
+  };
 }
 
 function srtAlignTag(preset) {
@@ -206,9 +268,15 @@ function ttmlRegion(preset) {
 const api = {
   DEFAULT_PRESET_ID,
   CAPTION_PRESETS,
+  SYSTEM_FONTS,
+  WORDS_PER_CUE_VALUES,
   listPresets,
   getPreset,
   isKnownPresetId,
+  listFonts,
+  normalizeWordsPerCue,
+  normalizeHexColor,
+  mergeStyle,
   srtAlignTag,
   ttmlFontSize,
   ttmlRegion

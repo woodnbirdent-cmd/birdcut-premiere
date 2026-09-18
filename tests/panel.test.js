@@ -140,8 +140,117 @@ describe("panel controller", () => {
     assert.ok(calls[0].cueCount > 0);
     assert.match(root.innerHTML, /Add captions to sequence/);
     assert.match(root.innerHTML, /Karaoke/);
+    assert.match(root.innerHTML, /1 word/);
+    assert.match(root.innerHTML, /2 words/);
+    assert.match(root.innerHTML, /captionFontFamily/);
+    assert.match(root.innerHTML, /captionColor/);
     assert.match(root.innerHTML, /Apply cuts/);
+    assert.doesNotMatch(root.innerHTML, /Caption style preset/);
     assert.doesNotMatch(controller.getState().message, /deleted ranges/i);
+  });
+
+  it("can emit 2-word cues from the Captions tab controls", async () => {
+    const calls = [];
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const controller = createPanelController({
+      root: fakeRoot(),
+      host: {
+        available: false,
+        async getStatus() {
+          return { available: false, message: "Preview host", sequenceName: "Demo" };
+        },
+        async addCaptionsToSequence(payload) {
+          calls.push(payload);
+          return { ok: true, applied: true, message: `Added ${payload.cueCount} cues` };
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.transcribe();
+    await controller.selectCaptionPreset("karaoke");
+    const oneWord = await controller.addCaptionsToSequence();
+    await controller.saveCaptionStyle({ captionWordsPerCue: "2", captionFontFamily: "Impact", captionColor: "#FFAA00" });
+    const twoWord = await controller.addCaptionsToSequence();
+    assert.equal(oneWord.ok, true);
+    assert.equal(twoWord.ok, true);
+    assert.ok(calls[0].cueCount > calls[1].cueCount);
+    assert.ok(calls[1].cueCount > 0);
+    assert.equal(controller.getState().settings.captionWordsPerCue, "2");
+    assert.equal(controller.getState().settings.captionFontFamily, "Impact");
+  });
+
+  it("flushing Captions font fields does not reset words-per-cue", async () => {
+    const values = {
+      captionFontFamily: "Arial",
+      captionColor: "#FFFFFF",
+      captionOutlineColor: "#000000"
+    };
+    const form = {
+      querySelector(sel) {
+        const match = /\[name=["']?(\w+)["']?\]/.exec(sel);
+        const name = match && match[1];
+        if (!name || !(name in values)) return null;
+        return {
+          name,
+          get value() {
+            return values[name];
+          },
+          getAttribute: (key) => (key === "name" ? name : "")
+        };
+      },
+      addEventListener() {}
+    };
+    const root = {
+      innerHTML: "",
+      ownerDocument: { addEventListener() {} },
+      querySelector(sel) {
+        if (sel === "#captions-form") return form;
+        return null;
+      },
+      querySelectorAll() {
+        return [];
+      }
+    };
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const controller = createPanelController({
+      root,
+      host: {
+        available: false,
+        async getStatus() {
+          return { available: false, message: "Preview host", sequenceName: "Demo" };
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.transcribe();
+    await controller.saveCaptionStyle({ captionWordsPerCue: "2" });
+    assert.equal(controller.getState().settings.captionWordsPerCue, "2");
   });
 
   it("Whisper mode captures sequence audio instead of the mock fixture", async () => {
