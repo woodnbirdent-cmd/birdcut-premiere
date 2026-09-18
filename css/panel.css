@@ -187,7 +187,7 @@ textarea {
 .preset-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 8px;
   margin: 8px 0;
 }
 
@@ -196,7 +196,8 @@ textarea {
   flex-direction: column;
   gap: 4px;
   text-align: left;
-  padding: 8px;
+  min-height: 72px;
+  padding: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -207,9 +208,55 @@ textarea {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+.preset-kind {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .preset-sample {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
+}
+
+.section-title {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.caption-section {
+  margin: 4px 0 8px;
+}
+
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.swatch.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.hex-field {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.04em;
 }
 
 .caption-stage {
@@ -305,12 +352,6 @@ textarea {
 
 .color-field {
   flex-direction: column;
-}
-
-.captions-form input[type="color"] {
-  width: 100%;
-  min-height: 28px;
-  padding: 2px;
 }
 
 .btn:disabled,

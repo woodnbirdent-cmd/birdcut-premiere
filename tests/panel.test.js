@@ -140,10 +140,15 @@ describe("panel controller", () => {
     assert.ok(calls[0].cueCount > 0);
     assert.match(root.innerHTML, /Add captions to sequence/);
     assert.match(root.innerHTML, /Karaoke/);
+    assert.match(root.innerHTML, /Style presets/);
+    assert.match(root.innerHTML, /Animation feel/);
     assert.match(root.innerHTML, /1 word/);
     assert.match(root.innerHTML, /2 words/);
+    assert.match(root.innerHTML, /ALL CAPS/);
     assert.match(root.innerHTML, /captionFontFamily/);
-    assert.match(root.innerHTML, /captionColor/);
+    assert.match(root.innerHTML, /data-color-swatch/);
+    assert.match(root.innerHTML, /hex-field/);
+    assert.doesNotMatch(root.innerHTML, /type="color"/);
     assert.match(root.innerHTML, /Apply cuts/);
     assert.doesNotMatch(root.innerHTML, /Caption style preset/);
     assert.doesNotMatch(controller.getState().message, /deleted ranges/i);
@@ -251,6 +256,60 @@ describe("panel controller", () => {
     await controller.transcribe();
     await controller.saveCaptionStyle({ captionWordsPerCue: "2" });
     assert.equal(controller.getState().settings.captionWordsPerCue, "2");
+  });
+
+  it("persists ALL CAPS and hex color without a native color input", async () => {
+    const calls = [];
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const controller = createPanelController({
+      root: fakeRoot(),
+      host: {
+        available: false,
+        async getStatus() {
+          return { available: false, message: "Preview host", sequenceName: "Demo" };
+        },
+        async addCaptionsToSequence(payload) {
+          calls.push(payload);
+          return { ok: true, applied: true, message: `Added ${payload.cueCount} cues` };
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.transcribe();
+    await controller.selectCaptionPreset("karaoke");
+    await controller.saveCaptionStyle({
+      captionUppercase: true,
+      captionFontFamily: "Impact",
+      captionColor: "#FF3300",
+      captionOutlineColor: "00FF00"
+    });
+    const result = await controller.addCaptionsToSequence();
+    assert.equal(result.ok, true);
+    assert.equal(controller.getState().settings.captionUppercase, true);
+    assert.equal(controller.getState().settings.captionFontFamily, "Impact");
+    assert.equal(controller.getState().settings.captionColor, "#FF3300");
+    assert.match(calls[0].srt, /OKAY/);
+    assert.match(calls[0].srt, /face="Impact"/);
+    assert.match(calls[0].srt, /#FF3300/i);
+    assert.match(calls[0].ttml, /OKAY/);
+    assert.match(calls[0].ttml, /Impact/);
+    assert.match(calls[0].ttml, /#FF3300/i);
+    assert.equal(calls[0].uppercase, true);
+    assert.match(calls[0].styleHint || "", /TTML|font/i);
+    assert.equal(controller.getState().settings.captionOutlineColor, "#00FF00");
   });
 
   it("Whisper mode captures sequence audio instead of the mock fixture", async () => {

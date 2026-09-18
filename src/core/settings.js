@@ -41,8 +41,17 @@ const DEFAULT_SETTINGS = {
   captionWordsPerCue: "",
   captionFontFamily: "",
   captionColor: "",
-  captionOutlineColor: ""
+  captionOutlineColor: "",
+  captionUppercase: false,
+  captionAnimationFeel: ""
 };
+
+function normalizeStoredHex(value) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.slice(1).toUpperCase()}`;
+  if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toUpperCase()}`;
+  return raw;
+}
 
 function isWhisperLike(provider) {
   return provider === "whisper" || provider === "local-whisper";
@@ -88,8 +97,16 @@ function normalizeSettings(raw) {
       ? String(input.captionWordsPerCue)
       : DEFAULT_SETTINGS.captionWordsPerCue,
     captionFontFamily: String(input.captionFontFamily || "").trim(),
-    captionColor: String(input.captionColor || "").trim(),
-    captionOutlineColor: String(input.captionOutlineColor || "").trim()
+    captionColor: normalizeStoredHex(input.captionColor || ""),
+    captionOutlineColor: normalizeStoredHex(input.captionOutlineColor || ""),
+    captionUppercase:
+      input.captionUppercase === true ||
+      input.captionUppercase === "true" ||
+      input.captionUppercase === "1" ||
+      input.captionUppercase === "on",
+    captionAnimationFeel: ["none", "karaoke", "pop"].indexOf(String(input.captionAnimationFeel || "")) >= 0
+      ? String(input.captionAnimationFeel)
+      : DEFAULT_SETTINGS.captionAnimationFeel
   };
 }
 

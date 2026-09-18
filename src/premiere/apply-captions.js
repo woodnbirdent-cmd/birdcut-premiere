@@ -44,6 +44,24 @@ function chooseInsertTrackIndexes({ videoCount, captionCount } = {}) {
   };
 }
 
+function captionStyleNote({ fileName, styleHint, uppercase } = {}) {
+  const name = String(fileName || "");
+  const isTtml = /\.ttml$/i.test(name);
+  const bits = [];
+  if (isTtml) {
+    bits.push(
+      "Styled TTML was imported (font/color/outline in the file). If the timeline still looks like default white captions, Premiere stripped those styles — open the .ttml in the Project panel."
+    );
+  } else if (/\.srt$/i.test(name)) {
+    bits.push(
+      "Premiere’s SRT importer usually ignores font/color and uses its default caption look. Cue timing (and ALL CAPS, if on) is still in the letters."
+    );
+  }
+  if (uppercase) bits.push("Cue text is ALL CAPS.");
+  if (styleHint) bits.push(String(styleHint));
+  return bits.join(" ");
+}
+
 function summarizeCaptionApply({
   imported,
   inserted,
@@ -52,16 +70,21 @@ function summarizeCaptionApply({
   cueCount,
   presetName,
   fileName,
-  warnings
+  warnings,
+  styleHint,
+  uppercase
 } = {}) {
   const warns = warnings || [];
   const captionDelta = (Number(captionCountAfter) || 0) - (Number(captionCountBefore) || 0);
+  const styleNote = captionStyleNote({ fileName, styleHint, uppercase });
   if (inserted && captionDelta > 0) {
     return {
       ok: true,
       applied: true,
       placed: "caption-track",
-      message: `Added ${cueCount || 0} caption cue(s) to the sequence (${presetName || "preset"}). Save and inspect the caption track.`
+      message: `Added ${cueCount || 0} caption cue(s) to the sequence (${presetName || "preset"}). ${styleNote} Save and inspect the caption track.`
+        .replace(/\s+/g, " ")
+        .trim()
     };
   }
   if (inserted) {
@@ -69,7 +92,9 @@ function summarizeCaptionApply({
       ok: true,
       applied: true,
       placed: "sequence",
-      message: `Inserted ${fileName || "captions"} on the sequence (${presetName || "preset"}, ${cueCount || 0} cues). Premiere UXP has no createCaptionTrack helper — confirm the clip landed on a caption or video track.`
+      message: `Inserted ${fileName || "captions"} on the sequence (${presetName || "preset"}, ${cueCount || 0} cues). Premiere UXP has no createCaptionTrack helper — confirm the clip landed on a caption or video track. ${styleNote}`
+        .replace(/\s+/g, " ")
+        .trim()
     };
   }
   if (imported) {
@@ -77,7 +102,9 @@ function summarizeCaptionApply({
       ok: true,
       applied: false,
       placed: "project-bin",
-      message: `Imported ${fileName || "captions"} into the Project panel (${presetName || "preset"}). Premiere UXP cannot create a caption track yet — drag the file onto the sequence. ${warns[0] || ""}`.trim()
+      message: `Imported ${fileName || "captions"} into the Project panel (${presetName || "preset"}). Premiere UXP cannot create a caption track yet — drag the .ttml (styled) or .srt onto the sequence. ${styleNote} ${warns[0] || ""}`
+        .replace(/\s+/g, " ")
+        .trim()
     };
   }
   return {
@@ -245,8 +272,8 @@ async function addCaptionsToSequence(ppro, uxp, host, payload) {
   const stamp = Date.now();
   const files = [];
   try {
+    if (ttml) files.push(await writeTempFile(uxp, `birdcut-captions-${stamp}.ttml`, ttml));
     if (srt) files.push(await writeTempFile(uxp, `birdcut-captions-${stamp}.srt`, srt));
-    if (ttml) files.push(await writeTempFile(uxp, `birdcut-captions-${stamp}.xml`, ttml));
   } catch (err) {
     return { ok: false, applied: false, warnings, message: err.message || String(err) };
   }
@@ -270,7 +297,7 @@ async function addCaptionsToSequence(ppro, uxp, host, payload) {
 
   let importedItem = null;
   let usedFile = files[0];
-  const importOrder = files.slice().reverse();
+  const importOrder = files.slice();
   for (let i = 0; i < importOrder.length; i += 1) {
     const file = importOrder[i];
     try {
@@ -324,7 +351,9 @@ async function addCaptionsToSequence(ppro, uxp, host, payload) {
     cueCount: payload && payload.cueCount,
     presetName: payload && payload.presetName,
     fileName: usedFile && usedFile.name,
-    warnings
+    warnings,
+    styleHint: payload && payload.styleHint,
+    uppercase: payload && payload.uppercase
   });
   return {
     ...summary,
@@ -343,6 +372,7 @@ const api = {
   itemKey,
   findImportedItem,
   chooseInsertTrackIndexes,
+  captionStyleNote,
   summarizeCaptionApply,
   addCaptionsToSequence
 };

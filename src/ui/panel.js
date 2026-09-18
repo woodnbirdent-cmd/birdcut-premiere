@@ -25,6 +25,148 @@ const applyCuts = load("apply", "BirdCutApply", "../premiere/apply-cuts");
 const applyCaptions = load("applyCaptions", "BirdCutApplyCaptions", "../premiere/apply-captions");
 const modelErrors = load("errors", "BirdCutErrors", "../stt/errors");
 
+const FALLBACK_CAPTION_PRESETS = [
+  {
+    id: "clean-lower-third",
+    name: "Clean Lower Third",
+    kind: "look",
+    description: "Look: white Arial, bottom third.",
+    fontFamily: "Arial",
+    fontSize: 42,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    outlineColor: "#000000",
+    outlineWidth: 2,
+    alignment: "center",
+    verticalPosition: "bottom",
+    wordsPerCue: "phrase",
+    animation: "none",
+    animationNote: "Static styled captions.",
+    previewAspect: "16:9"
+  },
+  {
+    id: "karaoke",
+    name: "Karaoke",
+    kind: "timing",
+    description: "Timing: 1 word on screen. Look: yellow.",
+    fontFamily: "Arial",
+    fontSize: 56,
+    fontWeight: "700",
+    color: "#FFE566",
+    outlineColor: "#111111",
+    outlineWidth: 3,
+    alignment: "center",
+    verticalPosition: "bottom",
+    wordsPerCue: "1",
+    animation: "karaoke",
+    animationNote: "1 word cues from Whisper times.",
+    previewAspect: "16:9"
+  },
+  {
+    id: "pop",
+    name: "Pop",
+    kind: "timing",
+    description: "Timing: 2 words on screen.",
+    fontFamily: "Arial Black",
+    fontSize: 58,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    outlineColor: "#FF3B7A",
+    outlineWidth: 3,
+    alignment: "center",
+    verticalPosition: "middle",
+    wordsPerCue: "2",
+    animation: "pop",
+    animationNote: "2 word cues. Timeline cannot scale.",
+    previewAspect: "16:9"
+  }
+];
+
+function fallbackCaptionStylesApi() {
+  return {
+    listPresets: () => FALLBACK_CAPTION_PRESETS.slice(),
+    getPreset: (id) => FALLBACK_CAPTION_PRESETS.find((item) => item.id === id) || FALLBACK_CAPTION_PRESETS[0],
+    listFonts: (extra) => {
+      const fonts = ["Arial", "Arial Black", "Georgia", "Impact", "Verdana", "Times New Roman", "Helvetica"];
+      if (extra && fonts.indexOf(extra) < 0) fonts.unshift(extra);
+      return fonts;
+    },
+    listColorSwatches: () => [
+      { hex: "#FFFFFF", label: "White" },
+      { hex: "#FFE566", label: "Yellow" },
+      { hex: "#FFCC00", label: "Gold" },
+      { hex: "#7C9CFF", label: "Blue" },
+      { hex: "#6EE7B7", label: "Mint" },
+      { hex: "#FF3B7A", label: "Pink" },
+      { hex: "#FF3300", label: "Red" },
+      { hex: "#000000", label: "Black" }
+    ],
+    listOutlineSwatches: () => [
+      { hex: "#000000", label: "Black" },
+      { hex: "#111111", label: "Ink" },
+      { hex: "#FFFFFF", label: "White" },
+      { hex: "#FF3B7A", label: "Pink" }
+    ],
+    listAnimationFeels: () => [
+      { id: "none", label: "None", wordsPerCue: "phrase", description: "Phrase cues." },
+      { id: "karaoke", label: "Karaoke", wordsPerCue: "1", description: "1 word." },
+      { id: "pop", label: "Pop", wordsPerCue: "2", description: "2 words." }
+    ],
+    normalizeWordsPerCue: (value, fallback) => {
+      const raw = String(value || "");
+      if (raw === "1" || raw === "2" || raw === "phrase") return raw;
+      return fallback || "phrase";
+    },
+    normalizeHexColor: (value, fallback) => {
+      const raw = String(value || "").trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.slice(1).toUpperCase()}`;
+      if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toUpperCase()}`;
+      return fallback || "";
+    },
+    mergeStyle: (presetOrId, overrides) => {
+      const base =
+        typeof presetOrId === "object" && presetOrId
+          ? presetOrId
+          : FALLBACK_CAPTION_PRESETS.find((item) => item.id === presetOrId) || FALLBACK_CAPTION_PRESETS[0];
+      const o = overrides || {};
+      return {
+        ...base,
+        fontFamily: o.fontFamily || base.fontFamily,
+        color: o.color || base.color,
+        outlineColor: o.outlineColor || base.outlineColor,
+        wordsPerCue: o.wordsPerCue || base.wordsPerCue,
+        animation: o.animation || base.animation,
+        uppercase: Boolean(o.uppercase)
+      };
+    }
+  };
+}
+
+function captionStylesApi() {
+  const candidates = [captionStyles, typeof globalThis !== "undefined" ? globalThis.BirdCutCaptionStyles : null];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const api = candidates[i];
+    if (!api) continue;
+    if (typeof api.listPresets === "function") {
+      const list = api.listPresets();
+      if (Array.isArray(list) && list.length) return api;
+    }
+    if (Array.isArray(api.CAPTION_PRESETS) && api.CAPTION_PRESETS.length) {
+      return Object.assign({}, fallbackCaptionStylesApi(), api, {
+        listPresets: () => api.CAPTION_PRESETS.slice()
+      });
+    }
+  }
+  return fallbackCaptionStylesApi();
+}
+
+function validHexOrUndefined(value) {
+  const next = captionStylesApi().normalizeHexColor
+    ? captionStylesApi().normalizeHexColor(value, "")
+    : String(value || "").trim();
+  return /^#[0-9A-F]{6}$/i.test(next) ? next : undefined;
+}
+
 function h(html) {
   return html;
 }
@@ -63,6 +205,7 @@ function readSettingsFromForm(form) {
     return field ? field.value : undefined;
   };
   const includeSpeaker = fieldValue(form, "includeSpeakerInCaptions");
+  const includeCaps = fieldValue(form, "captionUppercase");
   const apiKeyField = fieldValue(form, "apiKey");
   const data = {
     language: language ? language.value : undefined,
@@ -81,8 +224,10 @@ function readSettingsFromForm(form) {
     captionPresetId: valueOf("captionPresetId"),
     captionWordsPerCue: valueOf("captionWordsPerCue"),
     captionFontFamily: valueOf("captionFontFamily"),
-    captionColor: valueOf("captionColor"),
-    captionOutlineColor: valueOf("captionOutlineColor")
+    captionColor: validHexOrUndefined(valueOf("captionColor")),
+    captionOutlineColor: validHexOrUndefined(valueOf("captionOutlineColor")),
+    captionUppercase: includeCaps ? Boolean(includeCaps.checked) : undefined,
+    captionAnimationFeel: valueOf("captionAnimationFeel")
   };
   Object.keys(data).forEach((key) => {
     if (data[key] === undefined) delete data[key];
@@ -483,26 +628,32 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   function currentCaptionPreset() {
-    return captionStyles.getPreset
-      ? captionStyles.getPreset(state.settings.captionPresetId)
+    const styles = captionStylesApi();
+    return styles.getPreset
+      ? styles.getPreset(state.settings.captionPresetId)
       : { id: state.settings.captionPresetId, name: "Captions" };
   }
 
   function currentCaptionStyle() {
+    const styles = captionStylesApi();
     const preset = currentCaptionPreset();
-    if (captionStyles.mergeStyle) {
-      return captionStyles.mergeStyle(preset, {
+    const animation = state.settings.captionAnimationFeel || preset.animation || "none";
+    if (styles.mergeStyle) {
+      return styles.mergeStyle(preset, {
         fontFamily: state.settings.captionFontFamily,
         color: state.settings.captionColor,
         outlineColor: state.settings.captionOutlineColor,
-        wordsPerCue: state.settings.captionWordsPerCue
+        wordsPerCue: state.settings.captionWordsPerCue,
+        animation,
+        uppercase: state.settings.captionUppercase
       });
     }
-    return preset;
+    return { ...preset, animation, uppercase: Boolean(state.settings.captionUppercase) };
   }
 
   function buildCaptionPayload() {
     const style = currentCaptionStyle();
+    const styles = captionStylesApi();
     return captions.buildCaptionExport
       ? captions.buildCaptionExport(state.transcript, {
           includeSpeakers: state.settings.includeSpeakerInCaptions && style.wordsPerCue === "phrase",
@@ -511,15 +662,20 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           wordsPerCue: style.wordsPerCue,
           fontFamily: style.fontFamily,
           color: style.color,
-          outlineColor: style.outlineColor
+          outlineColor: style.outlineColor,
+          animation: style.animation,
+          uppercase: style.uppercase
         })
       : {
           srt: captions.transcriptToSrt(state.transcript, {
-            includeSpeakers: state.settings.includeSpeakerInCaptions
+            includeSpeakers: state.settings.includeSpeakerInCaptions,
+            uppercase: style.uppercase
           }),
           cueCount: 0,
           preset: style,
-          wordsPerCue: style.wordsPerCue
+          wordsPerCue: style.wordsPerCue,
+          uppercase: style.uppercase,
+          styleHint: styles.mergeStyle ? "" : "Caption style module used a fallback list."
         };
   }
 
@@ -554,7 +710,11 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           ttml: payload.ttml,
           cueCount: payload.cueCount,
           presetId: payload.preset.id,
-          presetName: payload.preset.name
+          presetName: payload.preset.name,
+          fontFamily: payload.preset.fontFamily,
+          color: payload.preset.color,
+          uppercase: Boolean(payload.uppercase || payload.preset.uppercase),
+          styleHint: payload.styleHint
         },
         (ppro, uxp, hostRef, data) => applyCaptions.addCaptionsToSequence(ppro, uxp, hostRef, data)
       );
@@ -569,13 +729,16 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   async function selectCaptionPreset(id) {
-    const preset = captionStyles.getPreset ? captionStyles.getPreset(id) : { id };
+    const styles = captionStylesApi();
+    const preset = styles.getPreset ? styles.getPreset(id) : { id };
+    const feel = preset.animation === "karaoke" || preset.animation === "pop" ? preset.animation : "none";
     state.settings = await settingsStore.save({
       captionPresetId: preset.id,
       captionWordsPerCue: preset.wordsPerCue || "phrase",
       captionFontFamily: preset.fontFamily || "",
       captionColor: preset.color || "",
-      captionOutlineColor: preset.outlineColor || ""
+      captionOutlineColor: preset.outlineColor || "",
+      captionAnimationFeel: feel
     });
     setMessage(`Caption style: ${preset.name}.`, "ok");
     render();
@@ -714,16 +877,21 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   }
 
   function renderCaptions() {
+    const styles = captionStylesApi();
     const style = currentCaptionStyle();
     const payload = buildCaptionPayload();
     const cues = payload.cues || [];
     const srt = payload.srtPlain || payload.srt || "";
-    const presets = captionStyles.listPresets ? captionStyles.listPresets() : [];
-    const fonts = captionStyles.listFonts ? captionStyles.listFonts(style.fontFamily) : [style.fontFamily || "Arial"];
-    const sample = cues[0] ? cues[0].text.replace(/\n/g, " ") : "Captions land here after transcribe";
+    const presets = styles.listPresets ? styles.listPresets() : [];
+    const fonts = styles.listFonts ? styles.listFonts(style.fontFamily) : [style.fontFamily || "Arial"];
+    const colorSwatches = styles.listColorSwatches ? styles.listColorSwatches() : [];
+    const outlineSwatches = styles.listOutlineSwatches ? styles.listOutlineSwatches() : [];
+    const feels = styles.listAnimationFeels ? styles.listAnimationFeels() : [];
+    const sampleRaw = cues[0] ? cues[0].text.replace(/\n/g, " ") : "Captions land here after transcribe";
+    const sample = style.uppercase ? String(sampleRaw).toUpperCase() : sampleRaw;
     const bg = style.background;
-    const motion =
-      style.animation === "pop" || style.animation === "karaoke" || style.wordsPerCue === "1" || style.wordsPerCue === "2";
+    const feelId = state.settings.captionAnimationFeel || style.animation || "none";
+    const motion = feelId === "pop" || feelId === "karaoke" || style.wordsPerCue === "1" || style.wordsPerCue === "2";
     const previewStyle = [
       `font-family:${escapeHtml(style.fontFamily || "Arial")}, sans-serif`,
       `font-size:${Math.max(14, Math.round((style.fontSize || 42) / 3))}px`,
@@ -735,23 +903,26 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         : "",
       bg
         ? `background: rgba(0,0,0,${bg.opacity == null ? 0.65 : bg.opacity}); padding: 8px 10px; border-radius: 4px;`
-        : ""
+        : "",
+      style.uppercase ? "text-transform:uppercase" : ""
     ]
       .filter(Boolean)
       .join(";");
     const posClass = `is-${style.verticalPosition || "bottom"}`;
     const list = cues
-      .slice(0, 40)
+      .slice(0, 8)
       .map(
         (cue) =>
           `<article class="cue"><header>${time.formatSrtTime(cue.startMs)} → ${time.formatSrtTime(cue.endMs)}</header><pre>${escapeHtml(cue.text)}</pre></article>`
       )
       .join("");
-    const extra = cues.length > 40 ? `<p class="muted">${cues.length - 40} more cues…</p>` : "";
+    const extra = cues.length > 8 ? `<p class="muted">${cues.length - 8} more cues…</p>` : "";
     const cards = presets
       .map((item) => {
         const selected = item.id === style.id ? " selected" : "";
+        const kind = item.kind === "timing" ? "Timing + look" : "Look";
         return `<button type="button" class="preset-card${selected}" data-caption-preset="${escapeHtml(item.id)}">
+          <span class="preset-kind">${escapeHtml(kind)}</span>
           <span class="preset-sample" style="color:${escapeHtml(item.color)};font-family:${escapeHtml(item.fontFamily)},sans-serif">${escapeHtml(item.name)}</span>
           <span class="muted">${escapeHtml(item.description)}</span>
         </button>`;
@@ -764,6 +935,26 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           `<option value="${escapeHtml(font)}"${font === style.fontFamily ? " selected" : ""}>${escapeHtml(font)}</option>`
       )
       .join("");
+    const textColor = style.color || "#FFFFFF";
+    const outlineColor = style.outlineColor || "#000000";
+    const swatchButtons = (items, current, attr) =>
+      (items || [])
+        .map((item) => {
+          const hex = item.hex || item;
+          const label = item.label || hex;
+          const on = String(hex).toUpperCase() === String(current).toUpperCase() ? " selected" : "";
+          return `<button type="button" class="swatch${on}" ${attr}="${escapeHtml(hex)}" title="${escapeHtml(label)}" style="background:${escapeHtml(hex)}" aria-label="${escapeHtml(label)}"></button>`;
+        })
+        .join("");
+    const feelButtons = feels
+      .map((item) => {
+        const on = item.id === feelId ? " selected" : "";
+        return `<button type="button" class="btn${on}" data-animation-feel="${escapeHtml(item.id)}" title="${escapeHtml(item.description || "")}">${escapeHtml(item.label)}</button>`;
+      })
+      .join("");
+    const emptyCards = cards
+      ? ""
+      : `<p class="empty">Style presets failed to load. Unload → Load the plugin. Fallback cards should appear after reload.</p>`;
     return h(`
       <form id="captions-form" class="captions-form">
       <p class="muted">Adding captions does not require deleted ranges. Apply cuts is only for words you mark for removal.</p>
@@ -772,9 +963,18 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         <button type="button" class="btn" id="btn-export-srt"${cues.length ? "" : " disabled"}>Export SRT</button>
         <span class="muted">${cues.length} cues · ${escapeHtml(style.name)} · ${
           wordsValue === "phrase" ? "phrase" : `${wordsValue} word${wordsValue === "1" ? "" : "s"}`
-        }</span>
+        }${style.uppercase ? " · ALL CAPS" : ""}</span>
       </div>
-      <div class="preset-grid">${cards}</div>
+      <section class="caption-section">
+        <h2 class="section-title">Style presets</h2>
+        <p class="muted">Look presets change font/color/position. Karaoke and Pop also change timing (words on screen).</p>
+        <div class="preset-grid">${cards || emptyCards}</div>
+      </section>
+      <section class="caption-section">
+        <h2 class="section-title">Animation feel</h2>
+        <p class="muted">None = phrase cues. Karaoke = 1 word. Pop = 2 words. Premiere cannot keyframe a scale pop on a caption track — that motion is preview-only.</p>
+        <div class="seg" role="group" aria-label="Animation feel">${feelButtons}</div>
+      </section>
       <div class="caption-controls">
         <div>
           <span class="control-label">Words on screen</span>
@@ -784,19 +984,28 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
             <button type="button" class="btn${wordsValue === "phrase" ? " selected" : ""}" data-words-per-cue="phrase">Phrase</button>
           </div>
         </div>
-        <div class="row-fields">
-          <label>Font
-            <select name="captionFontFamily">${fontOptions}</select>
-          </label>
-          <label class="color-field">Text color
-            <input name="captionColor" type="color" value="${escapeHtml(style.color || "#FFFFFF")}" />
-          </label>
-          <label class="color-field">Outline
-            <input name="captionOutlineColor" type="color" value="${escapeHtml(style.outlineColor || "#000000")}" />
-          </label>
+        <div>
+          <span class="control-label">Letters</span>
+          <div class="seg" role="group" aria-label="Letter case">
+            <button type="button" class="btn${style.uppercase ? " selected" : ""}" data-caption-uppercase="1">ALL CAPS</button>
+            <button type="button" class="btn${!style.uppercase ? " selected" : ""}" data-caption-uppercase="0">As spoken</button>
+          </div>
+        </div>
+        <label>Font
+          <select name="captionFontFamily">${fontOptions}</select>
+        </label>
+        <div>
+          <span class="control-label">Text color</span>
+          <div class="swatch-row">${swatchButtons(colorSwatches, textColor, "data-color-swatch")}</div>
+          <input name="captionColor" type="text" class="hex-field" value="${escapeHtml(textColor)}" maxlength="7" spellcheck="false" aria-label="Text color hex" />
+        </div>
+        <div>
+          <span class="control-label">Outline</span>
+          <div class="swatch-row">${swatchButtons(outlineSwatches, outlineColor, "data-outline-swatch")}</div>
+          <input name="captionOutlineColor" type="text" class="hex-field" value="${escapeHtml(outlineColor)}" maxlength="7" spellcheck="false" aria-label="Outline color hex" />
         </div>
       </div>
-      <p class="muted">${escapeHtml(style.animationNote || "")} Premiere cannot scale or bounce caption-track text. 1–2 word cues use Whisper word times; the pop you see below is preview-only.</p>
+      <p class="muted">${escapeHtml(style.animationNote || "")} Premiere UXP has no native color picker — use the swatches or hex. Font/color are written into TTML (and SRT font tags). Premiere often ignores SRT styles and may also strip TTML styles; ALL CAPS is the cue text itself so it always shows.</p>
       <div class="caption-stage aspect-${style.previewAspect === "9:16" ? "vertical" : "wide"}">
         <div class="caption-line ${posClass}" style="${previewStyle}"><span class="caption-pop${motion ? " is-on" : ""}">${escapeHtml(sample)}</span></div>
       </div>
@@ -921,7 +1130,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           <input name="includeSpeakerInCaptions" type="checkbox"${s.includeSpeakerInCaptions ? " checked" : ""} />
           Include speaker names in phrase captions
         </label>
-        <p class="muted">Caption look, words on screen, font, and colors live on the <strong>Captions</strong> tab. Phrase captions can include speaker names (1–2 word cues never do). Premiere caption tracks cannot pop or bounce — that motion is preview-only.</p>
+        <p class="muted">Caption look, animation feel, words on screen, ALL CAPS, font, and colors live on the <strong>Captions</strong> tab (swatches + hex — Premiere UXP has no working color picker). Phrase captions can include speaker names (1–2 word cues never do). Premiere caption tracks cannot pop or bounce — that motion is preview-only. Premiere often ignores SRT font/color.</p>
         <p class="muted">Provider and other options save as you change them. Use Save settings after pasting an API key.</p>
         <button type="submit" class="btn primary">Save settings</button>
       </form>
@@ -1051,17 +1260,55 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         saveCaptionStyle({ captionWordsPerCue: button.getAttribute("data-words-per-cue") })
       );
     });
+    root.querySelectorAll("[data-color-swatch]").forEach((button) => {
+      button.addEventListener("click", () =>
+        saveCaptionStyle({ captionColor: button.getAttribute("data-color-swatch") })
+      );
+    });
+    root.querySelectorAll("[data-outline-swatch]").forEach((button) => {
+      button.addEventListener("click", () =>
+        saveCaptionStyle({ captionOutlineColor: button.getAttribute("data-outline-swatch") })
+      );
+    });
+    root.querySelectorAll("[data-animation-feel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.getAttribute("data-animation-feel");
+        const styles = captionStylesApi();
+        const feels = styles.listAnimationFeels ? styles.listAnimationFeels() : [];
+        const feel = styles.animationFeelFor
+          ? styles.animationFeelFor(id)
+          : feels.find((item) => item.id === id);
+        const words = (feel && feel.wordsPerCue) || (id === "karaoke" ? "1" : id === "pop" ? "2" : "phrase");
+        saveCaptionStyle({ captionAnimationFeel: id, captionWordsPerCue: words });
+      });
+    });
+    root.querySelectorAll("[data-caption-uppercase]").forEach((button) => {
+      button.addEventListener("click", () =>
+        saveCaptionStyle({ captionUppercase: button.getAttribute("data-caption-uppercase") === "1" })
+      );
+    });
     const captionsForm = root.querySelector("#captions-form");
     if (captionsForm) {
       captionsForm.addEventListener("submit", (event) => event.preventDefault());
-      captionsForm.addEventListener("change", async (event) => {
-        const target = event.target;
+      const persistCaptionField = async (target) => {
         const name = target && target.name;
         if (!name) return;
         const data = {};
-        data[name] = target.value;
+        if (name === "captionColor" || name === "captionOutlineColor") {
+          const hex = validHexOrUndefined(target.value);
+          if (!hex) return;
+          data[name] = hex;
+        } else {
+          data[name] = target.value;
+        }
         await saveCaptionStyle(data);
-      });
+      };
+      captionsForm.addEventListener("change", (event) => persistCaptionField(event.target));
+      const fontSelect = fieldValue(captionsForm, "captionFontFamily");
+      if (fontSelect && typeof fontSelect.addEventListener === "function") {
+        fontSelect.addEventListener("change", () => persistCaptionField(fontSelect));
+        fontSelect.addEventListener("input", () => persistCaptionField(fontSelect));
+      }
     }
     const search = root.querySelector("#search");
     if (search) {
