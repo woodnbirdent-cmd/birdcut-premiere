@@ -783,8 +783,6 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
             <button type="button" class="btn${wordsValue === "2" ? " selected" : ""}" data-words-per-cue="2">2 words</button>
             <button type="button" class="btn${wordsValue === "phrase" ? " selected" : ""}" data-words-per-cue="phrase">Phrase</button>
           </div>
-          <input type="hidden" name="captionWordsPerCue" value="${escapeHtml(wordsValue)}" />
-          <input type="hidden" name="captionPresetId" value="${escapeHtml(style.id)}" />
         </div>
         <div class="row-fields">
           <label>Font

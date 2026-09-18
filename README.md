@@ -108,7 +108,7 @@ To transcribe **your** sequence or clip with Whisper:
 4. In Terminal (leave it running): `cd sidecar/local-whisper && ./start.sh`
 5. Settings → **Local Whisper (on this Mac)** (sticks immediately; no OpenAI key).
 6. Confirm `.epr` (e.g. `BirdCut Audio MP3.epr`) → **Transcribe sequence**.
-7. After words load, click **Add captions to sequence** (no deleted ranges needed). Pick a style on the Captions tab first if you want.
+7. After words load, open **Captions**: pick Karaoke or Pop, set **1 word** or **2 words**, then **Add captions to sequence**.
 8. If the top bar says **Start the Local Whisper sidecar**, the Python server is not up. Confirm `curl -s http://127.0.0.1:8090/health`. If a pane still does not scroll, Unload → Load once more.
 
 ## First run (editing)
