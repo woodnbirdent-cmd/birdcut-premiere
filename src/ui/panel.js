@@ -15,12 +15,14 @@ const time = load("time", "BirdCutTime", "../core/time");
 const model = load("model", "BirdCutTranscript", "../core/transcript-model");
 const planner = load("planner", "BirdCutPlanner", "../core/cut-planner");
 const captions = load("captions", "BirdCutCaptions", "../core/captions-srt");
+const captionStyles = load("captionStyles", "BirdCutCaptionStyles", "../core/caption-styles");
 const trimTools = load("trim", "BirdCutTrim", "../core/trim-tools");
 const settingsApi = load("settings", "BirdCutSettings", "../core/settings");
 const undoApi = load("undo", "BirdCutUndo", "../core/undo-stack");
 const stt = load("stt", "BirdCutStt", "../stt/transcribe");
 const whisperHttp = load("whisper", "BirdCutWhisper", "../stt/whisper-http");
 const applyCuts = load("apply", "BirdCutApply", "../premiere/apply-cuts");
+const applyCaptions = load("applyCaptions", "BirdCutApplyCaptions", "../premiere/apply-captions");
 const modelErrors = load("errors", "BirdCutErrors", "../stt/errors");
 
 function h(html) {
@@ -72,7 +74,8 @@ function readSettingsFromForm(form) {
     transcribeSource: valueOf("transcribeSource"),
     audioPresetPath: valueOf("audioPresetPath"),
     localWhisperBaseUrl: valueOf("localWhisperBaseUrl"),
-    localWhisperModel: valueOf("localWhisperModel")
+    localWhisperModel: valueOf("localWhisperModel"),
+    captionPresetId: valueOf("captionPresetId")
   };
   Object.keys(data).forEach((key) => {
     if (data[key] === undefined) delete data[key];
@@ -224,7 +227,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} demo words (mock). Switch Settings → Local Whisper (on this Mac), Adobe native, or Whisper HTTP to transcribe the timeline.`,
+          `Loaded ${transcript.words.length} demo words (mock). Next: Add captions to sequence (no cuts needed), or delete words then Apply cuts.`,
           "ok"
         );
         return;
@@ -241,7 +244,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
         commitTranscript(transcript);
         history.reset(state.transcript);
         setMessage(
-          `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}).`,
+          `Loaded ${transcript.words.length} words from Adobe Speech to Text (${transcript.source && transcript.source.label ? transcript.source.label : source}). Next: Add captions to sequence — cuts are not required.`,
           "ok"
         );
         return;
@@ -281,7 +284,10 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
             )
           );
           history.reset(state.transcript);
-          setMessage(`Loaded transcript JSON (${picked.fileName}).`, "ok");
+          setMessage(
+            `Loaded transcript JSON (${picked.fileName}). Next: Add captions to sequence, or delete words then Apply cuts.`,
+            "ok"
+          );
           return;
         }
         input = picked;
@@ -302,7 +308,10 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
       commitTranscript(transcript);
       history.reset(state.transcript);
       const where = (input && input.alignment && input.alignment.label) || state.hostStatus.sequenceName || source;
-      setMessage(`Loaded ${transcript.words.length} words from ${where}.`, "ok");
+      setMessage(
+        `Loaded ${transcript.words.length} words from ${where}. Next: Add captions to sequence (no cuts needed), or delete words then Apply cuts.`,
+        "ok"
+      );
     } catch (err) {
       const explained =
         modelErrors.explainSttError &&
@@ -396,7 +405,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   function saveDraft() {
     if (!state.draft) return;
     commitTranscript(trimTools.applyDraftToTranscript(state.transcript, state.draft));
-    setMessage(`Saved ${state.draft.tool} draft into the transcript. Apply to sequence when ready.`, "ok");
+    setMessage(`Saved ${state.draft.tool} draft into the transcript. Apply cuts when ready.`, "ok");
     state.draft = null;
     render();
   }
@@ -410,12 +419,15 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
   async function applyToSequence() {
     refreshCutPlan();
     if (!state.cutPlan || !state.cutPlan.removeRanges.length) {
-      setMessage("No deleted ranges to apply.", "warn");
+      setMessage(
+        "No words are marked for deletion, so Apply cuts has nothing to do. Captions do not need cuts — use Add captions to sequence.",
+        "warn"
+      );
       render();
       return;
     }
     state.busy = true;
-    setMessage("Applying cut plan to the active sequence…", "info");
+    setMessage("Applying cuts to the active sequence…", "info");
     render();
     try {
       if (typeof host.getSequenceSnapshot === "function" && host.available) {
@@ -458,6 +470,84 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     }
     render();
     return srt;
+  }
+
+  function captionableCount() {
+    return captions.captionWords ? captions.captionWords(state.transcript).length : 0;
+  }
+
+  function currentCaptionPreset() {
+    return captionStyles.getPreset
+      ? captionStyles.getPreset(state.settings.captionPresetId)
+      : { id: state.settings.captionPresetId, name: "Captions" };
+  }
+
+  function buildCaptionPayload() {
+    return captions.buildCaptionExport
+      ? captions.buildCaptionExport(state.transcript, {
+          includeSpeakers: state.settings.includeSpeakerInCaptions,
+          presetId: state.settings.captionPresetId
+        })
+      : {
+          srt: captions.transcriptToSrt(state.transcript, {
+            includeSpeakers: state.settings.includeSpeakerInCaptions
+          }),
+          cueCount: 0,
+          preset: currentCaptionPreset()
+        };
+  }
+
+  async function addCaptionsToSequence() {
+    if (!captionableCount()) {
+      setMessage("Nothing to caption. Transcribe first — adding captions does not require deleted ranges.", "warn");
+      render();
+      return;
+    }
+    const payload = buildCaptionPayload();
+    if (!payload.srt) {
+      setMessage("Nothing to caption. Transcribe first.", "warn");
+      render();
+      return;
+    }
+    if (typeof host.addCaptionsToSequence !== "function") {
+      setMessage(
+        "This host cannot add captions to the sequence. Export SRT from the Captions tab, then import it in Premiere.",
+        "warn"
+      );
+      render();
+      return;
+    }
+    state.busy = true;
+    state.tab = "captions";
+    setMessage(`Adding ${payload.cueCount} caption cue(s) (${payload.preset.name}) to the sequence…`, "info");
+    render();
+    try {
+      const result = await host.addCaptionsToSequence(
+        {
+          srt: payload.srt,
+          ttml: payload.ttml,
+          cueCount: payload.cueCount,
+          presetId: payload.preset.id,
+          presetName: payload.preset.name
+        },
+        (ppro, uxp, hostRef, data) => applyCaptions.addCaptionsToSequence(ppro, uxp, hostRef, data)
+      );
+      setMessage(result.message, result.ok ? "ok" : "error");
+      return result;
+    } catch (err) {
+      setMessage(err.message || String(err), "error");
+    } finally {
+      state.busy = false;
+      render();
+    }
+  }
+
+  async function selectCaptionPreset(id) {
+    const preset = captionStyles.getPreset ? captionStyles.getPreset(id) : { id };
+    state.settings = await settingsStore.save({ captionPresetId: preset.id });
+    setMessage(`Caption style: ${preset.name}.`, "ok");
+    render();
+    return state.settings;
   }
 
   function flushFormIntoState() {
@@ -576,29 +666,66 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
                  <button type="button" class="btn primary" id="btn-save-draft">Save draft</button>
                  <button type="button" class="btn" id="btn-discard-draft">Discard</button>
                </div>`
-            : `<p class="muted">Run a trim tool to preview a draft. Save it into the transcript, then Apply to sequence.</p>`
+            : `<p class="muted">Run a trim tool to preview a draft. Save it into the transcript, then Apply cuts.</p>`
         }
       </div>
     `);
   }
 
   function renderCaptions() {
-    const cues = captions.transcriptToCues(state.transcript, {
-      includeSpeakers: state.settings.includeSpeakerInCaptions
-    });
-    const srt = captions.cuesToSrt(cues);
+    const preset = currentCaptionPreset();
+    const payload = buildCaptionPayload();
+    const cues = payload.cues || [];
+    const srt = payload.srtPlain || payload.srt || "";
+    const presets = captionStyles.listPresets ? captionStyles.listPresets() : [];
+    const sample = cues[0] ? cues[0].text.replace(/\n/g, " ") : "Captions land here after transcribe";
+    const bg = preset.background;
+    const previewStyle = [
+      `font-family:${escapeHtml(preset.fontFamily || "Arial")}, sans-serif`,
+      `font-size:${Math.max(14, Math.round((preset.fontSize || 42) / 3))}px`,
+      `font-weight:${escapeHtml(preset.fontWeight || "600")}`,
+      `color:${escapeHtml(preset.color || "#fff")}`,
+      `text-align:${escapeHtml(preset.alignment || "center")}`,
+      preset.outlineWidth
+        ? `text-shadow: 0 0 ${preset.outlineWidth}px ${preset.outlineColor || "#000"}, 0 1px 2px ${preset.outlineColor || "#000"}`
+        : "",
+      bg
+        ? `background: rgba(0,0,0,${bg.opacity == null ? 0.65 : bg.opacity}); padding: 8px 10px; border-radius: 4px;`
+        : ""
+    ]
+      .filter(Boolean)
+      .join(";");
+    const posClass = `is-${preset.verticalPosition || "bottom"}`;
     const list = cues
+      .slice(0, 40)
       .map(
         (cue) =>
           `<article class="cue"><header>${time.formatSrtTime(cue.startMs)} → ${time.formatSrtTime(cue.endMs)}</header><pre>${escapeHtml(cue.text)}</pre></article>`
       )
       .join("");
+    const extra = cues.length > 40 ? `<p class="muted">${cues.length - 40} more cues…</p>` : "";
+    const cards = presets
+      .map((item) => {
+        const selected = item.id === preset.id ? " selected" : "";
+        return `<button type="button" class="preset-card${selected}" data-caption-preset="${escapeHtml(item.id)}">
+          <span class="preset-sample" style="color:${escapeHtml(item.color)};font-family:${escapeHtml(item.fontFamily)},sans-serif">${escapeHtml(item.name)}</span>
+          <span class="muted">${escapeHtml(item.description)}</span>
+        </button>`;
+      })
+      .join("");
     return h(`
+      <p class="muted">Adding captions does not require deleted ranges. Apply cuts is only for words you mark for removal.</p>
       <div class="row">
-        <button type="button" class="btn primary" id="btn-export-srt">Export SRT</button>
-        <span class="muted">${cues.length} cues from active words</span>
+        <button type="button" class="btn primary js-add-captions" id="btn-add-captions"${state.busy || !cues.length ? " disabled" : ""}>Add captions to sequence</button>
+        <button type="button" class="btn" id="btn-export-srt"${cues.length ? "" : " disabled"}>Export SRT</button>
+        <span class="muted">${cues.length} cues · ${escapeHtml(preset.name)}</span>
       </div>
-      <div class="cues">${list || "<p class='empty'>No caption cues yet.</p>"}</div>
+      <div class="preset-grid">${cards}</div>
+      <p class="muted">${escapeHtml(preset.animationNote || "")}</p>
+      <div class="caption-stage aspect-${preset.previewAspect === "9:16" ? "vertical" : "wide"}">
+        <div class="caption-line ${posClass}" style="${previewStyle}">${escapeHtml(sample)}</div>
+      </div>
+      <div class="cues">${list || "<p class='empty'>No caption cues yet. Transcribe first.</p>"}${extra}</div>
       <textarea class="srt-preview" readonly>${escapeHtml(srt)}</textarea>
     `);
   }
@@ -718,6 +845,19 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           <input name="includeSpeakerInCaptions" type="checkbox"${s.includeSpeakerInCaptions ? " checked" : ""} />
           Include speaker names in captions
         </label>
+        <label>Caption style preset
+          <select name="captionPresetId">
+            ${(captionStyles.listPresets ? captionStyles.listPresets() : [])
+              .map(
+                (preset) =>
+                  `<option value="${escapeHtml(preset.id)}"${
+                    preset.id === s.captionPresetId ? " selected" : ""
+                  }>${escapeHtml(preset.name)}</option>`
+              )
+              .join("")}
+          </select>
+        </label>
+        <p class="muted">Presets control font, color, position, and cue timing when you Add captions to sequence. Premiere UXP caption tracks are static — karaoke/pop are timing approximations, not After Effects motion.</p>
         <p class="muted">Provider and other options save as you change them. Use Save settings after pasting an API key.</p>
         <button type="submit" class="btn primary">Save settings</button>
       </form>
@@ -763,7 +903,10 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
                    }`
                 : `<button type="button" class="btn primary" id="btn-transcribe"${state.busy ? " disabled" : ""}>Transcribe</button>`
             }
-            <button type="button" class="btn danger" id="btn-apply"${state.busy ? " disabled" : ""}>Apply to sequence</button>
+            <button type="button" class="btn primary js-add-captions" id="btn-add-captions-top"${
+              state.busy || !captionableCount() ? " disabled" : ""
+            }>Add captions to sequence</button>
+            <button type="button" class="btn danger" id="btn-apply"${state.busy ? " disabled" : ""}>Apply cuts</button>
           </div>
         </header>
         <nav class="tabs">
@@ -791,7 +934,7 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
           ${tab === "captions" ? renderCaptions() : ""}
           ${tab === "settings" ? renderSettings() : ""}
         </section>
-        <footer class="status status-${escapeHtml(state.messageTone)}">${escapeHtml(state.message || "Select words, delete to build a cut plan, then preview on Trim.")}</footer>
+        <footer class="status status-${escapeHtml(state.messageTone)}">${escapeHtml(state.message || "Transcribe, then Add captions to sequence. Delete words only if you want Apply cuts.")}</footer>
       </div>
     `);
     bind();
@@ -832,6 +975,13 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     }
     const applyBtn = root.querySelector("#btn-apply");
     if (applyBtn) applyBtn.addEventListener("click", () => applyToSequence());
+    const addCaptionsBtns = root.querySelectorAll(".js-add-captions");
+    addCaptionsBtns.forEach((button) => {
+      button.addEventListener("click", () => addCaptionsToSequence());
+    });
+    root.querySelectorAll("[data-caption-preset]").forEach((button) => {
+      button.addEventListener("click", () => selectCaptionPreset(button.getAttribute("data-caption-preset")));
+    });
     const search = root.querySelector("#search");
     if (search) {
       search.addEventListener("keydown", (event) => {
@@ -963,6 +1113,8 @@ function createPanelController({ root, host, storage, secureStorage, fileStore, 
     undo,
     redo,
     applyToSequence,
+    addCaptionsToSequence,
+    selectCaptionPreset,
     exportSrt,
     saveSettings,
     persistFormSettings,

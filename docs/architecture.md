@@ -6,9 +6,9 @@ Core modules are CommonJS for Node tests and UXP `require()`, wrapped in an IIFE
 ```
 index.html / index.js          UXP entry (panels.birdcut.show)
 src/ui/panel.js                Dark compact UI: Transcript, Trim, Captions, Settings
-src/core/                      Transcript model, undo, cut planner, captions, trim drafts, settings
+src/core/                      Transcript model, undo, cut planner, captions, caption style presets, trim drafts, settings
 src/stt/                       Mock fixture + Adobe native JSON map + Whisper HTTP + bounce timing alignment
-src/premiere/                  Sequence snapshot, Adobe STT, audio capture/bounce, apply via premierepro
+src/premiere/                  Sequence snapshot, Adobe STT, audio capture/bounce, apply cuts, import/insert captions
 fixtures/sample-transcript.json
 tests/                         node --test
 ```
@@ -40,7 +40,7 @@ Deleted words are still stored (struck through in the UI) so undo and cut planni
    - head/tail overlap → `setInPoint` / `setOutPoint` / `setStart`
    - hole in the middle → `cloneTrim` (UXP has no razor API)
 4. `createRippleCutPlan` also builds a packed `targetClips` layout using a global time map so video and audio stay in sync.
-5. **Apply to sequence** executes those operations through `SequenceEditor` / track item actions inside `project.executeTransaction`.
+5. **Apply cuts** executes those operations through `SequenceEditor` / track item actions inside `project.executeTransaction`. Captions are a separate **Add captions to sequence** path.
 
 Cut-planning is the source of truth and is unit-tested. Premiere apply is best-effort; see `docs/premiere-api-limits.md`.
 
@@ -66,8 +66,12 @@ Each tool produces a **draft** (`wordIdsToDelete` and optional `clipWindows`) wi
 - Remove retakes — cue phrases + repeated 5-grams (heuristic)
 - Create shortform clips — chapter windows, else densest speech windows
 
-Save writes the draft into the transcript (and therefore the cut plan). Discard drops it. Apply still requires the explicit **Apply to sequence** button.
+Save writes the draft into the transcript (and therefore the cut plan). Discard drops it. **Apply cuts** still requires the explicit **Apply cuts** button and at least one deleted range.
+
+## Captions
+
+**Add captions to sequence** is independent of the cut plan. It uses the current caption style preset (`captionPresetId` in settings), builds SRT + TTML from active (non-deleted) words, and asks the Premiere host to import/insert that file. Caption style cards live on the Captions tab.
 
 ## Out of scope (roadmap)
 
-Multicam auto-switch, animated caption presets, script-matching AI, and billing are intentionally not in this MVP.
+Multicam auto-switch, full After Effects caption motion (true bounce/pop keyframes, in-line karaoke highlight), script-matching AI, and billing are intentionally not in this MVP. Caption presets approximate those looks with static styled captions and word/phrase timing.

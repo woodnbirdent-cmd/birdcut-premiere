@@ -49,6 +49,10 @@ describe("panel controller", () => {
         messages.push(plan.removeRanges.length);
         return { ok: true, applied: false, message: "preview apply" };
       },
+      async addCaptionsToSequence(payload) {
+        messages.push(`captions:${payload.cueCount}:${payload.presetName}`);
+        return { ok: true, applied: true, message: `Added ${payload.cueCount} cues` };
+      },
       async setPlayerPosition() {
         return false;
       }
@@ -85,6 +89,59 @@ describe("panel controller", () => {
     assert.match(srt, /-->/);
     await controller.applyToSequence();
     assert.ok(messages[0] >= 1);
+  });
+
+  it("adds captions with zero deleted ranges and does not use Apply cuts", async () => {
+    const calls = [];
+    const memory = {};
+    const storage = {
+      getItem(key) {
+        return memory[key] || null;
+      },
+      setItem(key, value) {
+        memory[key] = String(value);
+      },
+      removeItem(key) {
+        delete memory[key];
+      }
+    };
+    const root = fakeRoot();
+    const controller = createPanelController({
+      root,
+      host: {
+        available: false,
+        async getStatus() {
+          return { available: false, message: "Preview host", sequenceName: "Demo" };
+        },
+        async applyCutPlan() {
+          calls.push("cuts");
+          return { ok: false, message: "should not run" };
+        },
+        async addCaptionsToSequence(payload) {
+          calls.push(payload);
+          return { ok: true, applied: true, message: `Added ${payload.cueCount} cues (${payload.presetName})` };
+        }
+      },
+      storage,
+      fixture
+    });
+    await controller.mount();
+    await controller.transcribe();
+    const deleted = controller.getState().transcript.words.filter((word) => word.deleted);
+    assert.equal(deleted.length, 0);
+    await controller.applyToSequence();
+    assert.equal(calls.includes("cuts"), false);
+    assert.match(controller.getState().message, /Add captions to sequence/i);
+    await controller.selectCaptionPreset("karaoke");
+    assert.equal(controller.getState().settings.captionPresetId, "karaoke");
+    const result = await controller.addCaptionsToSequence();
+    assert.equal(result.ok, true);
+    assert.equal(calls[0].presetName, "Karaoke");
+    assert.ok(calls[0].cueCount > 0);
+    assert.match(root.innerHTML, /Add captions to sequence/);
+    assert.match(root.innerHTML, /Karaoke/);
+    assert.match(root.innerHTML, /Apply cuts/);
+    assert.doesNotMatch(controller.getState().message, /deleted ranges/i);
   });
 
   it("Whisper mode captures sequence audio instead of the mock fixture", async () => {
@@ -144,9 +201,10 @@ describe("panel controller", () => {
       await controller.mount();
       await controller.transcribe("sequence");
       assert.deepEqual(captured, ["sequence"]);
-      const spoken = controller.getState().transcript.words.filter((word) => !word.isSilence);
-      assert.equal(spoken[0].text, "Hello");
-      assert.match(controller.getState().message, /words from Seq/i);
+    const spoken = controller.getState().transcript.words.filter((word) => !word.isSilence);
+    assert.equal(spoken[0].text, "Hello");
+    assert.match(controller.getState().message, /words from Seq/i);
+    assert.match(controller.getState().message, /Add captions to sequence/i);
     } finally {
       global.fetch = origFetch;
     }
@@ -169,6 +227,7 @@ describe("panel controller", () => {
           includeSpeakerInCaptions: { checked: true, value: "on" },
           transcribeSource: { value: "sequence" },
           audioPresetPath: { value: "" },
+          captionPresetId: { value: "clean-lower-third" },
           apiKey: { value: "" }
         };
         return values[name] || null;
@@ -231,6 +290,7 @@ describe("panel controller", () => {
       includeSpeakerInCaptions: true,
       transcribeSource: "sequence",
       audioPresetPath: "",
+      captionPresetId: "clean-lower-third",
       apiKey: ""
     };
     const form = {
